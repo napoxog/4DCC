@@ -27,7 +27,7 @@ getRandomRicker <- function(t=seq(1,1000), traceRC = traceRC, scale=1) {
   
   num=nrow(traceRC)
   tat=min(t) + traceRC$tEvent*diff(range(t))
-  scals=traceRC$tScals*scale
+  scals=traceRC$tScals*scale/sqrt(num)
   freqs=traceRC$tFreqs
   
   a=sin(t/2/pi/1000)/10
@@ -95,10 +95,11 @@ ui <- dashboardPage(#skin = "black",
                        sliderInput("tWinLoc",label = "Window Location, %",min = 0, max =100, step = 1,value = 50),
                        sliderInput("tWin",label = "Window size, %",min = 5, max =50, step = 1,value = 10),
                        sliderInput("corrLim",label = "Correlation threshold, %",min = 0, max =1, step = 0.1,value = 0.3),
+                       sliderInput("maxShift",label = "Max shift, ms",min = 10, max =200, step = 10,value = 30),
                        checkboxInput('useReal',"Use Sleipner data",value = F)
                      ),
                      menuItem(tabName='prm-sg',text = "Synthetics generation:",
-                       sliderInput("nEvent",label = "Events number",min = 1, max =10, step = 1,value = 8),
+                       sliderInput("nEvent",label = "Events number",min = 1, max =100, step = 1,value = 8),
                        sliderInput("tFreq",label = "Base frequency",min = 5, max =60, step = 1,value = 15),
                        sliderInput("tScaler",label = "Scale T axis by",min = 0.8, max =1.2, step = 0.01,value = 1.05),
                        sliderInput("tShift",label = "Shift T axis by",min = -50, max =50, step = 2,value = -10)
@@ -108,6 +109,7 @@ ui <- dashboardPage(#skin = "black",
                        checkboxInput('useSquared',"Use squared values",value = F),
                        checkboxInput('useEnvelop',"Use signal Envelop",value = F),
                        checkboxInput('useNorm',"Normalize",value = T),
+                       checkboxInput('shapeCC',"Shape Cross-correlation",value = T),
                        checkboxInput('useFilter',"ApplyFilter",value = F),
                        sliderInput("freqRange",label = "Filter frequency, Hz",min = 0, max =60, step = 1,value = c(10,20))
                      )
@@ -128,14 +130,14 @@ ui <- dashboardPage(#skin = "black",
   ))
 )
 
-getDT <- function (x,y, corrLim) {
+getDT <- function (x,y, corrLim, shapeCC=T) {
   #print(summary(x))
   #print(summary(y))
   #print(paste("getDT: ",sd(x),length(x),sd(y),length(y)))
   ccy <- ccf(x = x,y=y,lag.max = length(x)/2,type = 'correlation',plot = F)
   ccy$lag=ccy$lag
 
-  
+  if(shapeCC) ccy$acf=gausswin(length(ccy$acf),1)*ccy$acf
   ccsy=max(ccy$acf)
   dtsy=0
   #print(summary(x))
@@ -169,7 +171,7 @@ getFiltered <- function (x, freq = c(5,10)) {
   return(filtfilt(bf,x))
 }
 
-getDTvector <- function(df,tWin,useAbs,useSquared,useEnvelop, useNorm, corrLim, freq=NULL) {
+getDTvector <- function(df,tWin,useAbs,useSquared,useEnvelop, useNorm, corrLim, freq=NULL, shapeCC=T) {
 
   n=100
   dtsy=rep(0,n)
@@ -212,8 +214,8 @@ getDTvector <- function(df,tWin,useAbs,useSquared,useEnvelop, useNorm, corrLim, 
     }
     #print(summary(data.frame(x,y)))
 
-    dty = getDT(x,y,corrLim)
-    dtz = getDT(x,z,corrLim)
+    dty = getDT(x,y,corrLim,shapeCC)
+    dtz = getDT(x,z,corrLim,shapeCC)
     
     ccsy[tWinLoc]=dty[1]
     dtsy[tWinLoc]=dty[2]
@@ -254,11 +256,11 @@ server <- function(input, output,session) {
       trc<-rctvs$traceRC
       subRange=(winRange[1]:winRange[2])
       t=subRange*2
-      x=getRandomRicker(traceRC = trc,scale = 1,t = seq(1,synLen)*2)[subRange]
+      x=getRandomRicker(traceRC = trc,t = seq(1,synLen)*2)[subRange]
       trc$tEvents=trc$tEvents*input$tScaler+input$tShift/1000
-      y=getRandomRicker(traceRC = trc,scale = 1,t = seq(1,synLen)*2)[subRange]
+      y=getRandomRicker(traceRC = trc,t = seq(1,synLen)*2)[subRange]
       trc$tEvents=trc$tEvents*input$tScaler+input$tShift/1000
-      z=getRandomRicker(traceRC = trc,scale = 1,t = seq(1,synLen)*2)[subRange]
+      z=getRandomRicker(traceRC = trc,t = seq(1,synLen)*2)[subRange]
     }
     #print(winRange)
     df=data.frame(cbind(t=t,x=x,y=y,z=z))
@@ -300,6 +302,9 @@ server <- function(input, output,session) {
     ccz <- ccf(x = df$xx,y=df$zz,lag.max = nrow(df)/2,type = 'correlation',plot = F)
     ccz$lag=ccz$lag*2
     
+    if(input$shapeCC) cc$acf=gausswin(length(cc$acf),1)*cc$acf
+    if(input$shapeCC) ccz$acf=gausswin(length(ccz$acf),1)*ccz$acf
+    
     par(mfrow = c(2,1))
     plot (x=df$t,y=df$x,t='l',ylim=range(df[,-1]))
     lines(df$t,y=df$y,col='red')
@@ -308,14 +313,17 @@ server <- function(input, output,session) {
     lines(df$t,y=df$yy,col='red',lwd=2)
     lines(df$t,y=df$zz,col='blue',lwd=2)
     lines(x=rep(mean(range(df$t)),2),y=c(-10,10),col='pink')
-    title(paste("transform: t=t*",input$tScaler,"+",input$tShift))
+    
+    if(input$useReal) title("Sleipner_IL1840_XL1130")
+    else title(paste("transform: t=t*",input$tScaler,"+",input$tShift))
 
     plot (x=cc$lag,y=cc$acf,t='l',col='red')
     lines(x=ccz$lag,y=ccz$acf,col='blue')
     lines(x=c(0,0),y=c(-2,2),col='pink')
     
     dt=cc$lag[which(cc$acf==max(cc$acf))]
-    title(main=paste("max CC=",round(digits=3,max(cc$acf)),"@ DT=",dt/2," ~",signif (digits = 3,100*dt/nrow(df)*2),"%"),
+    dtz=ccz$lag[which(ccz$acf==max(ccz$acf))]
+    title(main=paste("max CC=",c(round(digits=3,max(cc$acf)),round(digits=3,max(ccz$acf))),"@ DT=",c(dt,dtz)/2),#," ~",signif (digits = 3,100*dt/nrow(df)*2),"%"),
           sub=paste("DT estimation error = ", round(digits=4,100*((input$tShift-dt)/(input$tShift))),"%"))
     
   })
@@ -330,11 +338,11 @@ server <- function(input, output,session) {
     } else {
       t=seq(1,synLen)*2
       trc<-rctvs$traceRC
-      x=getRandomRicker(traceRC = trc,scale = 1,t = t)
+      x=getRandomRicker(traceRC = trc,t = t)
       trc$tEvents=trc$tEvents*input$tScaler+input$tShift/1000
-      y=getRandomRicker(traceRC = trc,scale = 1,t = t)
+      y=getRandomRicker(traceRC = trc,t = t)
       trc$tEvents=trc$tEvents*input$tScaler+input$tShift/1000
-      z=getRandomRicker(traceRC = trc,scale = 1,t = t)
+      z=getRandomRicker(traceRC = trc,t = t)
     }
     #print(winRange)
     df=data.frame(cbind(t=t,x=x,y=y,z=z))
@@ -346,6 +354,7 @@ server <- function(input, output,session) {
                        useEnvelop = input$useEnvelop,
                        useNorm = input$useNorm,
                        corrLim = input$corrLim,
+                       shapeCC = input$shapeCC,
                        freq = if(input$useFilter) input$freqRange else NULL)
     
     
@@ -354,16 +363,21 @@ server <- function(input, output,session) {
     lines(x=df$t,y=df$y,col='red')
     lines(x=df$t,y=df$z+1,col='blue')
     lines(x=rep(input$tWinLoc/100*nrow(df)*2,2),y=c(-10,10),col='pink')
+    if(input$useReal) title("Sleipner_IL1840_XL1130")
+    else title(paste("transform: t=t*",input$tScaler,"+",input$tShift))
     
-    plot (dts$dtsy,t='l', col='red',ylim=c(-50,50))#range(dts$dtsy,dts$dtsz))
+    
+    plot (dts$dtsy,t='l', col='red',ylim=c(-input$maxShift,input$maxShift))#range(dts$dtsy,dts$dtsz))
     lines(dts$dtsy*dts$ccsy**2,col='red',lwd=2)
     lines(dts$dtsz,col='blue')
     lines(dts$dtsz*dts$ccsz**2,col='blue',lwd=2)
     lines(x=c(0,nrow(dts)),y=c(0,0),col='green')
     lines(x=rep(input$tWinLoc,2),y=c(-1000,1000),col='pink')
     
-    plot (dts$ccsy,t='l',ylim=range(dts$ccsy,dts$ccsz),col='red')
+    plot (dts$ccsy,t='l',ylim=range(0,1),col='red')
     lines(dts$ccsz,col='blue')
+    lines(dts$ccsy**2,col='red',lwd=2)
+    lines(dts$ccsz**2,col='blue',lwd=2)
     lines(x=c(0,nrow(dts)),y=c(input$corrLim,input$corrLim),col='green')
     lines(x=rep(input$tWinLoc,2),y=c(-10,10),col='pink')
     #ggplot()+geom_raster(data = matrix(dataSleip))
