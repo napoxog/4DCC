@@ -15,7 +15,7 @@ genRCtrace <- function (nEvents=10, scale=1, freq=25) {
   tScals=runif(n = nEvents,min = -1, max = 1)
   tFreqs=runif(n = nEvents,min = freq/2, max = freq*2)
   odf=data.frame(tEvents,tScals,tFreqs)
-  print(summary(odf))
+  #print(summary(odf))
   return(odf)
 }
 
@@ -31,7 +31,7 @@ getRandomRicker <- function(t=seq(1,1000), traceRC = traceRC, scale=1) {
   freqs=traceRC$tFreqs
   
   a=sin(t/2/pi/1000)/10
-  print(summary(data.frame(tat,scals,freqs)))
+  #print(summary(data.frame(tat,scals,freqs)))
   for(i in seq(1,len)) {
     #a[i]=0
     for(w in seq(1,num)) {
@@ -95,10 +95,10 @@ ui <- dashboardPage(#skin = "black",
                        sliderInput("tWinLoc",label = "Window Location, %",min = 0, max =100, step = 1,value = 50),
                        sliderInput("tWin",label = "Window size, %",min = 5, max =50, step = 1,value = 10),
                        sliderInput("corrLim",label = "Correlation threshold, %",min = 0, max =1, step = 0.1,value = 0.3),
-                       sliderInput("maxShift",label = "Max shift, ms",min = 10, max =200, step = 10,value = 30),
-                       checkboxInput('useReal',"Use Sleipner data",value = F)
+                       sliderInput("maxShift",label = "Max shift displayed, ms",min = 10, max =200, step = 10,value = 30)
                      ),
                      menuItem(tabName='prm-sg',text = "Synthetics generation:",
+                       checkboxInput('useReal',"Use Sleipner data",value = F),
                        sliderInput("nEvent",label = "Events number",min = 1, max =100, step = 1,value = 8),
                        sliderInput("tFreq",label = "Base frequency",min = 5, max =60, step = 1,value = 15),
                        sliderInput("tScaler",label = "Scale T axis by",min = 0.8, max =1.2, step = 0.01,value = 1.05),
@@ -244,7 +244,7 @@ server <- function(input, output,session) {
     if(input$useReal) {
       winRange=c(floor(nrow(dataSleip)*max(1,(input$tWinLoc-input$tWin/2))/100),
                  floor(nrow(dataSleip)*min(99,(input$tWinLoc+input$tWin/2))/100))
-      print(paste("winRange: ",winRange))
+      #print(paste("winRange: ",winRange))
       t=(winRange[1]:winRange[2])*2
       x=dataSleip[winRange[1]:winRange[2],3]
       y=dataSleip[winRange[1]:winRange[2],1]
@@ -252,7 +252,7 @@ server <- function(input, output,session) {
     } else {
       winRange=c(floor(synLen*max(1,(input$tWinLoc-input$tWin/2))/100),
                      floor(synLen*min(99,(input$tWinLoc+input$tWin/2))/100))
-      print(paste("winRange: ",winRange))
+      #print(paste("winRange: ",winRange))
       trc<-rctvs$traceRC
       subRange=(winRange[1]:winRange[2])
       t=subRange*2
@@ -264,7 +264,7 @@ server <- function(input, output,session) {
     }
     #print(winRange)
     df=data.frame(cbind(t=t,x=x,y=y,z=z))
-    print(summary(df))
+    #print(summary(df))
     df$xx=(df$x)
     df$yy=(df$y)
     df$zz=(df$z)
@@ -346,7 +346,7 @@ server <- function(input, output,session) {
     }
     #print(winRange)
     df=data.frame(cbind(t=t,x=x,y=y,z=z))
-    print(summary(df))
+    #print(summary(df))
     dts <- getDTvector(df = df,
                        tWin = input$tWin,
                        useAbs = input$useAbs,
