@@ -1,12 +1,57 @@
 t= 0:1500
+ricker <- function (t=0, f=25) {
+  s=1/f
+  return (2/sqrt(3*s)/pi^0.25*(1-(t/s)^2)*exp(-t*t/2/s/s))
+}
+#w=1
+#t=seq(-w,w,0.1)
+#a=ricker(t)
+
+seed=runif(1)
+
+genRCtrace <- function (nEvents=10, scale=1, freq=25) {
+  .Random.seed <- seed
+  tEvents=runif(n = nEvents)*0.8
+  tScals=runif(n = nEvents,min = -1, max = 1)
+  tFreqs=runif(n = nEvents,min = freq/2, max = freq*2)
+  odf=data.frame(tEvents,tScals,tFreqs)
+  print(summary(odf))
+  return(odf)
+}
+
+traceRC <- genRCtrace (3)
+print(traceRC)
+  
+getRandomRicker <- function(t=seq(1,1000), traceRC = traceRC, scale=1) {
+  len=length(t)
+  
+  num=nrow(traceRC)
+  tat=min(t) + traceRC$tEvent*diff(range(t))
+  scals=traceRC$tScals*scale
+  freqs=traceRC$tFreqs
+  
+  a=sin(t/2/pi/1000)/10
+  print(summary(data.frame(tat,scals,freqs)))
+  for(i in seq(1,len)) {
+    #a[i]=0
+    for(w in seq(1,num)) {
+      a[i]=a[i]+ricker(t = (t[i]-tat[w])/1000,f = freqs[w]) * scals[w]
+    }
+  }
+  return(a)
+}
+
 getFun <- function (t,f=5) 
 {
+  
+  return(getRandomRicker(t = t, traceRC,scale = 1))
   #browser()
   t=t/1000*(2*pi*f)
   f1=0.5*sin(t)+sin(t)*cos(t/3)
   w1=sapply(cos(t/5),FUN=function(x) { max(0.2,x)})
   return (f1*w1)
 }
+
 y=getFun(t)
 y2=getFun(t*0.90+20)
 
@@ -27,6 +72,9 @@ print(c(cc$lag[which(cc$acf==max(cc$acf))],max(cc$acf)))
 dataSleip <- read.csv2(file = "F:\\R\\Projects\\CC\\Sleipner_IL1840_XL1130.csv",sep = ',',quote = '"',dec = '.')
 
 
+
+#plot(t,getRandomRicker(t,10,1),t='l')
+
 require(shiny)
 require(shinydashboard)
 require(shinythemes)
@@ -43,23 +91,24 @@ ui <- dashboardPage(#skin = "black",
                    menuItem(tabName = 'cc',text = 'Cross-Correlation',icon = icon('gear')),
                    menuItem(tabName = 'dt',text = 'Delta T',icon = icon('folder')), selected=T,
                    menuItem(tabName = 'prm',text = 'Parameters',icon = icon('gear'), startExpanded = T,
+                     menuItem(tabName='prm-pr',text = "Display:", startExpanded = T, 
+                       sliderInput("tWinLoc",label = "Window Location, %",min = 0, max =100, step = 1,value = 50),
+                       sliderInput("tWin",label = "Window size, %",min = 5, max =50, step = 1,value = 10),
+                       sliderInput("corrLim",label = "Correlation threshold, %",min = 0, max =1, step = 0.1,value = 0.3),
+                       checkboxInput('useReal',"Use Sleipner data",value = F)
+                     ),
                      menuItem(tabName='prm-sg',text = "Synthetics generation:",
-                       sliderInput("tFreq",label = "Base frequency",min = 5, max =100, step = 5,value = 5),
-                       sliderInput("tScaler",label = "Scale T axis by",min = 0.8, max =1.2, step = 0.01,value = 1),
-                       sliderInput("tShift",label = "Shift T axis by",min = -50, max =50, step = 2,value = 0)
+                       sliderInput("nEvent",label = "Events number",min = 1, max =10, step = 1,value = 8),
+                       sliderInput("tFreq",label = "Base frequency",min = 5, max =60, step = 1,value = 15),
+                       sliderInput("tScaler",label = "Scale T axis by",min = 0.8, max =1.2, step = 0.01,value = 1.05),
+                       sliderInput("tShift",label = "Shift T axis by",min = -50, max =50, step = 2,value = -10)
                      ),
                      menuItem(tabName='prm-tr',text = "Transformations:",
                        checkboxInput('useAbs',"Use absolute values",value = F),
                        checkboxInput('useSquared',"Use squared values",value = F),
                        checkboxInput('useEnvelop',"Use signal Envelop",value = F),
-                       checkboxInput('useNorm',"Normalize",value = T)
-                     ),
-                     menuItem(tabName='prm-pr',text = "Processing:", startExpanded = T, 
-                       sliderInput("tWinLoc",label = "Window Location, %",min = 0, max =100, step = 1,value = 50),
-                       sliderInput("tWin",label = "Window size, %",min = 5, max =50, step = 1,value = 10),
-                       sliderInput("corrLim",label = "Correlation threshold, %",min = 0, max =1, step = 0.1,value = 0.3),
-                       checkboxInput('useReal',"Use Sleipner data",value = T),
-                       checkboxInput('useFilter',"ApplyFilter",value = T),
+                       checkboxInput('useNorm',"Normalize",value = T),
+                       checkboxInput('useFilter',"ApplyFilter",value = F),
                        sliderInput("freqRange",label = "Filter frequency, Hz",min = 0, max =60, step = 1,value = c(10,20))
                      )
                    )
@@ -80,21 +129,28 @@ ui <- dashboardPage(#skin = "black",
 )
 
 getDT <- function (x,y, corrLim) {
+  #print(summary(x))
+  #print(summary(y))
+  #print(paste("getDT: ",sd(x),length(x),sd(y),length(y)))
   ccy <- ccf(x = x,y=y,lag.max = length(x)/2,type = 'correlation',plot = F)
-  ccy$lag=ccy$lag*2
+  ccy$lag=ccy$lag
 
   
   ccsy=max(ccy$acf)
   dtsy=0
-  
+  #print(summary(x))
+  #print(summary(y))
+  #print(corrLim)
+  #print(ccsy)
   if(ccsy>corrLim) dtsy=ccy$lag[which(ccy$acf==ccsy)]
 
   return(c(ccsy,dtsy))
 }
 
 getDTSS <- function (x,y, corrLim) {
+  #print(paste("getDT: ",length(x),length(y)))
   ccy <- ccf(x = x,y=y,lag.max = length(x)/2,type = 'correlation',plot = F)
-  ccy$lag=ccy$lag*2
+  ccy$lag=ccy$lag
   
   
   ccsy=max(ccy$acf)
@@ -115,17 +171,19 @@ getFiltered <- function (x, freq = c(5,10)) {
 
 getDTvector <- function(df,tWin,useAbs,useSquared,useEnvelop, useNorm, corrLim, freq=NULL) {
 
-  dtsy=rep(0,100)
-  ccsy=rep(0,100)
-  dtsz=rep(0,100)
-  ccsz=rep(0,100)
-  for(tWinLoc in c(0:100)) {
-    winRange=c(floor(nrow(df)*max(1,(tWinLoc-tWin/2))/100),
+  n=100
+  dtsy=rep(0,n)
+  ccsy=rep(0,n)
+  dtsz=rep(0,n)
+  ccsz=rep(0,n)
+  for(tWinLoc in c(0:n)) {
+    winRange=c(floor(nrow(df)*max(0,(tWinLoc-tWin/2))/100),
                floor(nrow(df)*min(100,(tWinLoc+tWin/2))/100))
+    #print(paste("winRange: ",winRange))
     t=(winRange[1]:winRange[2])*2
-    x=df[winRange[1]:winRange[2],3]
-    y=df[winRange[1]:winRange[2],1]
-    z=df[winRange[1]:winRange[2],2]
+    x=df[winRange[1]:winRange[2],2]
+    y=df[winRange[1]:winRange[2],3]
+    z=df[winRange[1]:winRange[2],4]
     
     if(!is.null(freq)) {
       x=getFiltered(x,freq)
@@ -152,7 +210,8 @@ getDTvector <- function(df,tWin,useAbs,useSquared,useEnvelop, useNorm, corrLim, 
       y=(y-mean(y))/sd(y)
       z=(z-mean(z))/sd(z)
     }
-    
+    #print(summary(data.frame(x,y)))
+
     dty = getDT(x,y,corrLim)
     dtz = getDT(x,z,corrLim)
     
@@ -170,27 +229,40 @@ getDTvector <- function(df,tWin,useAbs,useSquared,useEnvelop, useNorm, corrLim, 
 #getDTvector(dataSleip,5)
 
 #return()
+synLen=1000
+
+rctvs <- reactiveValues(traceRC = traceRC)
   
 server <- function(input, output,session) {
+  
+  observeEvent(input$nEvent, { rctvs$traceRC <- genRCtrace (nEvents = input$nEvent,freq = input$tFreq)})
+  observeEvent(input$tFreq,  { rctvs$traceRC <- genRCtrace (nEvents = input$nEvent,freq = input$tFreq)})
+  
   output$plot <- renderPlot({
     if(input$useReal) {
       winRange=c(floor(nrow(dataSleip)*max(1,(input$tWinLoc-input$tWin/2))/100),
-                 floor(nrow(dataSleip)*min(100,(input$tWinLoc+input$tWin/2))/100))
+                 floor(nrow(dataSleip)*min(99,(input$tWinLoc+input$tWin/2))/100))
+      print(paste("winRange: ",winRange))
       t=(winRange[1]:winRange[2])*2
       x=dataSleip[winRange[1]:winRange[2],3]
       y=dataSleip[winRange[1]:winRange[2],1]
       z=dataSleip[winRange[1]:winRange[2],2]
     } else {
-      synLen=1500
       winRange=c(floor(synLen*max(1,(input$tWinLoc-input$tWin/2))/100),
-                 floor(synLen*min(100,(input$tWinLoc+input$tWin/2))/100))
-      t=(winRange[1]:winRange[2])*2
-      x=getFun(t,f = input$tFreq)
-      y=getFun(t*input$tScaler+input$tShift,f = input$tFreq)
-      z=getFun(t*input$tScaler-input$tShift,f = input$tFreq)
+                     floor(synLen*min(99,(input$tWinLoc+input$tWin/2))/100))
+      print(paste("winRange: ",winRange))
+      trc<-rctvs$traceRC
+      subRange=(winRange[1]:winRange[2])
+      t=subRange*2
+      x=getRandomRicker(traceRC = trc,scale = 1,t = seq(1,synLen)*2)[subRange]
+      trc$tEvents=trc$tEvents*input$tScaler+input$tShift/1000
+      y=getRandomRicker(traceRC = trc,scale = 1,t = seq(1,synLen)*2)[subRange]
+      trc$tEvents=trc$tEvents*input$tScaler+input$tShift/1000
+      z=getRandomRicker(traceRC = trc,scale = 1,t = seq(1,synLen)*2)[subRange]
     }
     #print(winRange)
     df=data.frame(cbind(t=t,x=x,y=y,z=z))
+    print(summary(df))
     df$xx=(df$x)
     df$yy=(df$y)
     df$zz=(df$z)
@@ -220,7 +292,7 @@ server <- function(input, output,session) {
       df$yy=(df$yy-mean(df$yy))/sd(df$yy)
       df$zz=(df$zz-mean(df$zz))/sd(df$zz)
     }
-    print(summary(df))
+    #print(summary(df))
     #getDTvector(t,y,y2,winRange)
     cc <- ccf(x = df$xx,y=df$yy,lag.max = nrow(df)/2,type = 'correlation',plot = F)
     cc$lag=cc$lag*2
@@ -229,7 +301,7 @@ server <- function(input, output,session) {
     ccz$lag=ccz$lag*2
     
     par(mfrow = c(2,1))
-    plot(x=df$t,y=df$x,t='l',ylim=range(df[,-1]))
+    plot (x=df$t,y=df$x,t='l',ylim=range(df[,-1]))
     lines(df$t,y=df$y,col='red')
     lines(df$t,y=df$z,col='blue')
     lines(df$t,y=df$xx,col='black',lwd=2)
@@ -238,12 +310,12 @@ server <- function(input, output,session) {
     lines(x=rep(mean(range(df$t)),2),y=c(-10,10),col='pink')
     title(paste("transform: t=t*",input$tScaler,"+",input$tShift))
 
-    plot(x=cc$lag,y=cc$acf,t='l',col='red')
+    plot (x=cc$lag,y=cc$acf,t='l',col='red')
     lines(x=ccz$lag,y=ccz$acf,col='blue')
     lines(x=c(0,0),y=c(-2,2),col='pink')
     
     dt=cc$lag[which(cc$acf==max(cc$acf))]
-    title(main=paste("max CC=",round(digits=3,max(cc$acf)),"@ DT=",dt," ~",signif (digits = 3,100*dt/nrow(df)*2),"%"),
+    title(main=paste("max CC=",round(digits=3,max(cc$acf)),"@ DT=",dt/2," ~",signif (digits = 3,100*dt/nrow(df)*2),"%"),
           sub=paste("DT estimation error = ", round(digits=4,100*((input$tShift-dt)/(input$tShift))),"%"))
     
   })
@@ -251,19 +323,22 @@ server <- function(input, output,session) {
   output$plotDT <- renderPlot({
     
     if(input$useReal) {
-      t=seq(0,nrow(dataSleip))*2
+      t=seq(1,nrow(dataSleip))*2
       x=dataSleip[,3]
       y=dataSleip[,1]
       z=dataSleip[,2]
     } else {
-      synLen=1000
-      t=seq(0,synLen)*2
-      x=getFun(t,f = input$tFreq)
-      y=getFun(t*input$tScaler+input$tShift,f = input$tFreq)
-      z=getFun(t*input$tScaler-input$tShift,f = input$tFreq)
+      t=seq(1,synLen)*2
+      trc<-rctvs$traceRC
+      x=getRandomRicker(traceRC = trc,scale = 1,t = t)
+      trc$tEvents=trc$tEvents*input$tScaler+input$tShift/1000
+      y=getRandomRicker(traceRC = trc,scale = 1,t = t)
+      trc$tEvents=trc$tEvents*input$tScaler+input$tShift/1000
+      z=getRandomRicker(traceRC = trc,scale = 1,t = t)
     }
     #print(winRange)
-    df=data.frame(cbind(x=x,y=y,z=z))
+    df=data.frame(cbind(t=t,x=x,y=y,z=z))
+    print(summary(df))
     dts <- getDTvector(df = df,
                        tWin = input$tWin,
                        useAbs = input$useAbs,
@@ -275,17 +350,19 @@ server <- function(input, output,session) {
     
     
     par(mfrow = c(3,1))
-    plot(df$x-1,t='l',ylim=range(df))
-    lines(df$y,col='red')
-    lines(df$z+1,col='blue')
-    lines(x=rep(input$tWinLoc/100*nrow(df),2),y=c(-10,10),col='pink')
+    plot (x=df$t,y=df$x-1,t='l',ylim=c(-4,4))#range(df[,-1]))
+    lines(x=df$t,y=df$y,col='red')
+    lines(x=df$t,y=df$z+1,col='blue')
+    lines(x=rep(input$tWinLoc/100*nrow(df)*2,2),y=c(-10,10),col='pink')
     
-    plot(dts$dtsy,t='l', col='red',ylim=c(-50,50))#range(dts$dtsy,dts$dtsz))
+    plot (dts$dtsy,t='l', col='red',ylim=c(-50,50))#range(dts$dtsy,dts$dtsz))
+    lines(dts$dtsy*dts$ccsy**2,col='red',lwd=2)
     lines(dts$dtsz,col='blue')
+    lines(dts$dtsz*dts$ccsz**2,col='blue',lwd=2)
     lines(x=c(0,nrow(dts)),y=c(0,0),col='green')
     lines(x=rep(input$tWinLoc,2),y=c(-1000,1000),col='pink')
     
-    plot(dts$ccsy,t='l',ylim=range(dts$ccsy,dts$ccsz),col='red')
+    plot (dts$ccsy,t='l',ylim=range(dts$ccsy,dts$ccsz),col='red')
     lines(dts$ccsz,col='blue')
     lines(x=c(0,nrow(dts)),y=c(input$corrLim,input$corrLim),col='green')
     lines(x=rep(input$tWinLoc,2),y=c(-10,10),col='pink')
