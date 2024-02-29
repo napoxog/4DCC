@@ -69,7 +69,7 @@ print(c(cc$lag[which(cc$acf==max(cc$acf))],max(cc$acf)))
 
 
 
-dataSleip <- read.csv2(file = "F:\\R\\Projects\\CC\\Sleipner_IL1840_XL1130.csv",sep = ',',quote = '"',dec = '.')
+dataSleip <- read.csv2(file = "Sleipner_IL1840_XL1130.csv",sep = ',',quote = '"',dec = '.')
 
 
 
