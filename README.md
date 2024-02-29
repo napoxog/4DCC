@@ -1,0 +1,6 @@
+# 4D Seismic data Cross-correlation analysis #
+Simlpe tool to see how Cross-correlation method react to different signal transforms and calculation parameters...
+
+Can be seen on Real and Synthetic data...
+
+![Main screen image](https://github.com/napoxog/4DCC/blob/master/main.PNG)
