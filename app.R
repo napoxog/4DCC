@@ -80,6 +80,9 @@ require(shinydashboard)
 require(shinythemes)
 require(signal)
 require(spectral)
+require(ggplot2)
+require(gridExtra)
+require(plotly)
 
 ui <- dashboardPage(#skin = "black", 
   
@@ -100,7 +103,7 @@ ui <- dashboardPage(#skin = "black",
                      menuItem(tabName='prm-sg',text = "Synthetics generation:",
                        checkboxInput('useReal',"Use Sleipner data",value = F),
                        sliderInput("nEvent",label = "Events number",min = 1, max =100, step = 1,value = 8),
-                       sliderInput("tFreq",label = "Base frequency",min = 5, max =60, step = 1,value = 15),
+                       sliderInput("tFreq",label = "Base frequency",min = 5, max =100, step = 1,value = 15),
                        sliderInput("tScaler",label = "Scale T axis by",min = 0.8, max =1.2, step = 0.01,value = 1.05),
                        sliderInput("tShift",label = "Shift T axis by",min = -50, max =50, step = 2,value = -10)
                      ),
@@ -119,10 +122,10 @@ ui <- dashboardPage(#skin = "black",
   dashboardBody(
     tabItems(
     tabItem(tabName = 'cc',
-      plotOutput('plot',height = "800")#,width = "10", height = "800")
+      plotlyOutput('plot',height = "800")#,width = "10", height = "800")
     ),
     tabItem(tabName = 'dt',
-      plotOutput('plotDT', height = "1200")#,width = "10", height = "800")
+      plotlyOutput('plotDT', height = "1200")#,width = "10", height = "800")
     ),
     tabItem(tabName = 'prm',
             plotOutput('plotDTprm', height = "1200")#,width = "10", height = "800")
@@ -178,6 +181,7 @@ getDTvector <- function(df,tWin,useAbs,useSquared,useEnvelop, useNorm, corrLim, 
   ccsy=rep(0,n)
   dtsz=rep(0,n)
   ccsz=rep(0,n)
+  ts=rep(0,n)
   for(tWinLoc in c(0:n)) {
     winRange=c(floor(nrow(df)*max(0,(tWinLoc-tWin/2))/100),
                floor(nrow(df)*min(100,(tWinLoc+tWin/2))/100))
@@ -223,9 +227,11 @@ getDTvector <- function(df,tWin,useAbs,useSquared,useEnvelop, useNorm, corrLim, 
     ccsz[tWinLoc]=dtz[1]
     dtsz[tWinLoc]=dtz[2]
     
+    ts[tWinLoc]=mean(t)
+    
     #dtsz[tWinLoc]=ccz$lag[which(ccz$acf==ccsz[tWinLoc])]
   }
-  return(data.frame(cbind(ccsy,ccsz,dtsy,dtsz)))
+  return(data.frame(cbind(ts,ccsy,ccsz,dtsy,dtsz)))
 }
 
 #getDTvector(dataSleip,5)
@@ -240,7 +246,7 @@ server <- function(input, output,session) {
   observeEvent(input$nEvent, { rctvs$traceRC <- genRCtrace (nEvents = input$nEvent,freq = input$tFreq)})
   observeEvent(input$tFreq,  { rctvs$traceRC <- genRCtrace (nEvents = input$nEvent,freq = input$tFreq)})
   
-  output$plot <- renderPlot({
+  output$plot <- renderPlotly({
     if(input$useReal) {
       winRange=c(floor(nrow(dataSleip)*max(1,(input$tWinLoc-input$tWin/2))/100),
                  floor(nrow(dataSleip)*min(99,(input$tWinLoc+input$tWin/2))/100))
@@ -305,30 +311,48 @@ server <- function(input, output,session) {
     if(input$shapeCC) cc$acf=gausswin(length(cc$acf),1)*cc$acf
     if(input$shapeCC) ccz$acf=gausswin(length(ccz$acf),1)*ccz$acf
     
-    par(mfrow = c(2,1))
-    plot (x=df$t,y=df$x,t='l',ylim=range(df[,-1]))
-    lines(df$t,y=df$y,col='red')
-    lines(df$t,y=df$z,col='blue')
-    lines(df$t,y=df$xx,col='black',lwd=2)
-    lines(df$t,y=df$yy,col='red',lwd=2)
-    lines(df$t,y=df$zz,col='blue',lwd=2)
-    lines(x=rep(mean(range(df$t)),2),y=c(-10,10),col='pink')
-    
-    if(input$useReal) title("Sleipner_IL1840_XL1130")
-    else title(paste("transform: t=t*",input$tScaler,"+",input$tShift))
-
-    plot (x=cc$lag,y=cc$acf,t='l',col='red')
-    lines(x=ccz$lag,y=ccz$acf,col='blue')
-    lines(x=c(0,0),y=c(-2,2),col='pink')
+    if(input$useReal) title="Sleipner_IL1840_XL1130"
+    else title=paste("transform: t=t*",input$tScaler,"+",input$tShift)
     
     dt=cc$lag[which(cc$acf==max(cc$acf))]
     dtz=ccz$lag[which(ccz$acf==max(ccz$acf))]
-    title(main=paste("max CC=",c(round(digits=3,max(cc$acf)),round(digits=3,max(ccz$acf))),"@ DT=",c(dt,dtz)/2),#," ~",signif (digits = 3,100*dt/nrow(df)*2),"%"),
-          sub=paste("DT estimation error = ", round(digits=4,100*((input$tShift-dt)/(input$tShift))),"%"))
+    # par(mfrow = c(2,1))
+    # plot (x=df$t,y=df$x,t='l',ylim=range(df[,-1]))
+    # lines(df$t,y=df$y,col='red')
+    # lines(df$t,y=df$z,col='blue')
+    # lines(df$t,y=df$xx,col='black',lwd=2)
+    # lines(df$t,y=df$yy,col='red',lwd=2)
+    # lines(df$t,y=df$zz,col='blue',lwd=2)
+    # lines(x=rep(mean(range(df$t)),2),y=c(-10,10),col='pink')
+    # 
+    # if(input$useReal) title("Sleipner_IL1840_XL1130")
+    # else title(paste("transform: t=t*",input$tScaler,"+",input$tShift))
+    # 
+    # plot (x=cc$lag,y=cc$acf,t='l',col='red')
+    # lines(x=ccz$lag,y=ccz$acf,col='blue')
+    # lines(x=c(0,0),y=c(-2,2),col='pink')
+    # 
+    # title(main=paste("max CC=",c(round(digits=3,max(cc$acf)),round(digits=3,max(ccz$acf))),"@ DT=",c(dt,dtz)/2),#," ~",signif (digits = 3,100*dt/nrow(df)*2),"%"),
+    #       sub=paste("DT estimation error = ", round(digits=4,100*((input$tShift-dt)/(input$tShift))),"%"))
     
+    p1 = plot_ly(x=df$t,legendgroup = "Trace") %>% 
+      layout(legend = list(legendgrouptitle=list(text="<b>Traces</b>"))) %>%
+      add_lines(y=df$x, color=I("gray70"), name = 'base') %>%
+      add_lines(y=df$y, color=I("pink"),name = 'mon 1') %>%
+      add_lines(y=df$z, color=I("lightblue"), name = 'mon 2') %>%
+      add_lines(y=df$xx, color=I("black"), name = 'base transformed') %>%
+      add_lines(y=df$yy, color=I("red"),name = 'mon 1 transformed') %>%
+      add_lines(y=df$zz, color=I("blue"), name = 'mon 2 transformed') 
+    p2 = plot_ly(x=cc$lag[,1,],legendgroup = "CC") %>% 
+      layout(yaxis=list(range=c(-1,1)),legend = list(legendgrouptitle=list(text="<b>CC</b>"))) %>%
+      add_lines(y=cc$acf, color=I("red"),name = 'CC mon 1') %>%
+      add_lines(y=ccz$acf, color=I("blue"),name = 'CC mon 2') %>%
+      add_lines(y=gausswin(length(cc$acf),1), color=I("lightgreen"),name = 'CC shaper')
+      
+    subplot(p1,p2,shareY=T,nrows = 2) %>% layout(title=title,showlegend = T,legend=list(tracegroupgap=300))
   })
   
-  output$plotDT <- renderPlot({
+  output$plotDT <- renderPlotly({
     
     if(input$useReal) {
       t=seq(1,nrow(dataSleip))*2
@@ -357,30 +381,56 @@ server <- function(input, output,session) {
                        shapeCC = input$shapeCC,
                        freq = if(input$useFilter) input$freqRange else NULL)
     
+    if(input$useReal) title="Sleipner_IL1840_XL1130"
+    else title=paste("transform: t=t*",input$tScaler,"+",input$tShift)
+    #twin=c(1:100)/100*max(df$t)
     
-    par(mfrow = c(3,1))
-    plot (x=df$t,y=df$x-1,t='l',ylim=c(-4,4))#range(df[,-1]))
-    lines(x=df$t,y=df$y,col='red')
-    lines(x=df$t,y=df$z+1,col='blue')
-    lines(x=rep(input$tWinLoc/100*nrow(df)*2,2),y=c(-10,10),col='pink')
-    if(input$useReal) title("Sleipner_IL1840_XL1130")
-    else title(paste("transform: t=t*",input$tScaler,"+",input$tShift))
+    # par(mfrow = c(3,1))
+    # plot (x=df$t,y=df$x-1,t='l',ylim=c(-4,4))#range(df[,-1]))
+    # lines(x=df$t,y=df$y,col='red')
+    # lines(x=df$t,y=df$z+1,col='blue')
+    # lines(x=rep(input$tWinLoc/100*nrow(df)*2,2),y=c(-10,10),col='pink')
+    # if(input$useReal) title("Sleipner_IL1840_XL1130")
+    # else title(paste("transform: t=t*",input$tScaler,"+",input$tShift))
+    # 
+    # plot (dts$dtsy,t='l', col='red',ylim=c(-input$maxShift,input$maxShift))#range(dts$dtsy,dts$dtsz))
+    # lines(dts$dtsy*dts$ccsy**2,col='red',lwd=2)
+    # lines(dts$dtsz,col='blue')
+    # lines(dts$dtsz*dts$ccsz**2,col='blue',lwd=2)
+    # lines(x=c(0,nrow(dts)),y=c(0,0),col='green')
+    # lines(x=rep(input$tWinLoc,2),y=c(-1000,1000),col='pink')
+    # 
+    # plot (dts$ccsy,t='l',ylim=range(0,1),col='red')
+    # lines(dts$ccsz,col='blue')
+    # lines(dts$ccsy**2,col='red',lwd=2)
+    # lines(dts$ccsz**2,col='blue',lwd=2)
+    # lines(x=c(0,nrow(dts)),y=c(input$corrLim,input$corrLim),col='green')
+    # lines(x=rep(input$tWinLoc,2),y=c(-10,10),col='pink')
+    #browser()
+    p1 = plot_ly(x=df$t,legendgroup = "Traces") %>% 
+      layout(yaxis=list(range=c(-4,4))) %>%
+      add_lines(y=df$x-1, color=I("black"), name = 'base') %>%
+      add_lines(y=df$y, color=I("red"),name = 'mon 1') %>%
+      add_lines(y=df$z+1, color=I("blue"), name = 'mon 2') %>%
+      add_lines(x=rep(input$tWinLoc/100*nrow(df)*2,2),y=c(-10,10),color=I('green'),name = 'Window loc.')
+    p2 = plot_ly(x=dts$ts,legendgroup = "DT") %>% 
+      layout(yaxis=list(range=c(-input$maxShift,input$maxShift))) %>%
+      add_lines(y=dts$dtsy, color=I("pink"),name = 'DT mon 1') %>%
+      add_lines(y=dts$dtsz, color=I("lightblue"),name = 'DT mon 2') %>%
+      add_lines(y=dts$dtsy*dts$ccsy**2, color=I("red"),name = 'DT mon 1 * R<sup>2') %>%
+      add_lines(y=dts$dtsz*dts$ccsz**2, color=I("blue"),name = 'DT mon 2 * R<sup>2') %>%
+      add_lines(x=rep(input$tWinLoc/100*nrow(df)*2,2),y=c(-input$maxShift,input$maxShift),color=I('green'),name = 'Window loc.',showlegend = F)
+    p3 = plot_ly(x=dts$ts,legendgroup = "CC") %>% 
+      layout(yaxis=list(range=c(0,1))) %>%
+      add_lines(y=dts$ccsy, color=I("pink"),name = 'R mon 1') %>%
+      add_lines(y=dts$ccsz, color=I("lightblue"),name = 'R mon 2') %>%
+      add_lines(y=dts$ccsy**2, color=I("red"),name = 'R<sup>2</sup> mon 1') %>%
+      add_lines(y=dts$ccsz**2, color=I("blue"),name = 'R<sup>2</sup> mon 2') %>%
+      add_lines(x=rep(input$tWinLoc/100*nrow(df)*2,2),y=c(0,1),color=I('green'),name = 'Window loc.',showlegend = F)
     
     
-    plot (dts$dtsy,t='l', col='red',ylim=c(-input$maxShift,input$maxShift))#range(dts$dtsy,dts$dtsz))
-    lines(dts$dtsy*dts$ccsy**2,col='red',lwd=2)
-    lines(dts$dtsz,col='blue')
-    lines(dts$dtsz*dts$ccsz**2,col='blue',lwd=2)
-    lines(x=c(0,nrow(dts)),y=c(0,0),col='green')
-    lines(x=rep(input$tWinLoc,2),y=c(-1000,1000),col='pink')
+    subplot(p1,p2,p3,shareY=T,nrows = 3) %>% layout(title=title,showlegend = T,legend=list(tracegroupgap=300))
     
-    plot (dts$ccsy,t='l',ylim=range(0,1),col='red')
-    lines(dts$ccsz,col='blue')
-    lines(dts$ccsy**2,col='red',lwd=2)
-    lines(dts$ccsz**2,col='blue',lwd=2)
-    lines(x=c(0,nrow(dts)),y=c(input$corrLim,input$corrLim),col='green')
-    lines(x=rep(input$tWinLoc,2),y=c(-10,10),col='pink')
-    #ggplot()+geom_raster(data = matrix(dataSleip))
   })
 }
 
