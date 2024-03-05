@@ -113,6 +113,7 @@ ui <- dashboardPage(#skin = "black",
                        checkboxInput('useEnvelop',"Use signal Envelop",value = F),
                        checkboxInput('useNorm',"Normalize",value = T),
                        checkboxInput('shapeCC',"Shape Cross-correlation",value = T),
+                       sliderInput("shaperRange",label = "Gaussian sigma range",min = 1, max =3, step = 0.1,value = 1),
                        checkboxInput('useFilter',"ApplyFilter",value = F),
                        sliderInput("freqRange",label = "Filter frequency, Hz",min = 0, max =60, step = 1,value = c(10,20))
                      )
@@ -133,21 +134,21 @@ ui <- dashboardPage(#skin = "black",
   ))
 )
 
-getDT <- function (x,y, corrLim, shapeCC=T) {
+getDT <- function (x,y, corrLim, shapeCC=1) {
   #print(summary(x))
   #print(summary(y))
   #print(paste("getDT: ",sd(x),length(x),sd(y),length(y)))
   ccy <- ccf(x = x,y=y,lag.max = length(x)/2,type = 'correlation',plot = F)
   ccy$lag=ccy$lag
 
-  if(shapeCC) ccy$acf=gausswin(length(ccy$acf),1)*ccy$acf
+  if(!is.na(shapeCC)) ccy$acf=gausswin(length(ccy$acf),shapeCC)*ccy$acf
   ccsy=max(ccy$acf)
   dtsy=0
   #print(summary(x))
   #print(summary(y))
   #print(corrLim)
   #print(ccsy)
-  if(ccsy>corrLim) dtsy=ccy$lag[which(ccy$acf==ccsy)]
+  if(ccsy>corrLim) dtsy=ccy$lag[which(ccy$acf==ccsy)]*2
 
   return(c(ccsy,dtsy))
 }
@@ -174,7 +175,7 @@ getFiltered <- function (x, freq = c(5,10)) {
   return(filtfilt(bf,x))
 }
 
-getDTvector <- function(df,tWin,useAbs,useSquared,useEnvelop, useNorm, corrLim, freq=NULL, shapeCC=T) {
+getDTvector <- function(df,tWin,useAbs,useSquared,useEnvelop, useNorm, corrLim, freq=NULL, shapeCC=1) {
 
   n=100
   dtsy=rep(0,n)
@@ -308,8 +309,8 @@ server <- function(input, output,session) {
     ccz <- ccf(x = df$xx,y=df$zz,lag.max = nrow(df)/2,type = 'correlation',plot = F)
     ccz$lag=ccz$lag*2
     
-    if(input$shapeCC) cc$acf=gausswin(length(cc$acf),1)*cc$acf
-    if(input$shapeCC) ccz$acf=gausswin(length(ccz$acf),1)*ccz$acf
+    if(input$shapeCC) cc$acf=gausswin(length(cc$acf),input$shaperRange)*cc$acf
+    if(input$shapeCC) ccz$acf=gausswin(length(ccz$acf),input$shaperRange)*ccz$acf
     
     if(input$useReal) title="Sleipner_IL1840_XL1130"
     else title=paste("transform: t=t*",input$tScaler,"+",input$tShift)
@@ -345,9 +346,9 @@ server <- function(input, output,session) {
       add_lines(y=df$zz, color=I("blue"), name = 'mon 2 transformed') 
     p2 = plot_ly(x=cc$lag[,1,],legendgroup = "CC") %>% 
       layout(yaxis=list(range=c(-1,1)),legend = list(legendgrouptitle=list(text="<b>CC</b>"))) %>%
-      add_lines(y=cc$acf, color=I("red"),name = 'CC mon 1') %>%
-      add_lines(y=ccz$acf, color=I("blue"),name = 'CC mon 2') %>%
-      add_lines(y=gausswin(length(cc$acf),1), color=I("lightgreen"),name = 'CC shaper')
+      add_lines(y=cc$acf, color=I("red"),name = 'R mon 1') %>%
+      add_lines(y=ccz$acf, color=I("blue"),name = 'R mon 2') %>%
+      add_lines(y=gausswin(length(cc$acf),input$shaperRange), color=I("lightgreen"),name = 'R shaper')
       
     subplot(p1,p2,shareY=T,nrows = 2) %>% layout(title=title,showlegend = T,legend=list(tracegroupgap=300))
   })
@@ -378,7 +379,7 @@ server <- function(input, output,session) {
                        useEnvelop = input$useEnvelop,
                        useNorm = input$useNorm,
                        corrLim = input$corrLim,
-                       shapeCC = input$shapeCC,
+                       shapeCC = if(input$shapeCC) input$shaperRange else NA,
                        freq = if(input$useFilter) input$freqRange else NULL)
     
     if(input$useReal) title="Sleipner_IL1840_XL1130"
