@@ -78,6 +78,7 @@ dataSleip <- read.csv2(file = "Sleipner_IL1840_XL1130.csv",sep = ',',quote = '"'
 require(shiny)
 require(shinydashboard)
 require(shinythemes)
+require(shinyWidgets)
 require(signal)
 require(spectral)
 require(ggplot2)
@@ -101,7 +102,8 @@ ui <- dashboardPage(#skin = "black",
                        sliderInput("maxShift",label = "Max shift displayed, ms",min = 10, max =200, step = 10,value = 30)
                      ),
                      menuItem(tabName='prm-sg',text = "Synthetics generation:",
-                       checkboxInput('useReal',"Use Sleipner data",value = F),
+                       materialSwitch('useReal',"Use Sleipner data"),
+                       #checkboxInput('useReal',"Use Sleipner data",value = F),
                        sliderInput("nEvent",label = "Events number",min = 1, max =100, step = 1,value = 8),
                        sliderInput("tFreq",label = "Base frequency",min = 5, max =100, step = 1,value = 15),
                        sliderInput("tScaler",label = "Scale T axis by",min = 0.8, max =1.2, step = 0.01,value = 1.05),
@@ -112,6 +114,7 @@ ui <- dashboardPage(#skin = "black",
                        checkboxInput('useSquared',"Use squared values",value = F),
                        checkboxInput('useEnvelop',"Use signal Envelop",value = F),
                        checkboxInput('useNorm',"Normalize",value = T),
+                       checkboxInput('weiDT',"Weight DT by Cross-correlation",value = T),
                        checkboxInput('shapeCC',"Shape Cross-correlation",value = T),
                        sliderInput("shaperRange",label = "Gaussian sigma range",min = 1, max =3, step = 0.1,value = 1),
                        checkboxInput('useFilter',"ApplyFilter",value = F),
@@ -384,6 +387,20 @@ server <- function(input, output,session) {
     
     if(input$useReal) title="Sleipner_IL1840_XL1130"
     else title=paste("transform: t=t*",input$tScaler,"+",input$tShift)
+    
+    if(input$weiDT){
+      shft_y = round((df$t - approx(dts$ts,dts$dtsy*dts$ccsy**2,xout = df$t,method = "linear")$y)/2)
+      shft_z = round((df$t - approx(dts$ts,dts$dtsz*dts$ccsz**2,xout = df$t,method = "linear")$y)/2)
+    } else {
+      shft_y = round((df$t - approx(dts$ts,dts$dtsy,xout = df$t,method = "linear")$y)/2)
+      shft_z = round((df$t - approx(dts$ts,dts$dtsz,xout = df$t,method = "linear")$y)/2)
+    }
+    
+    shft_y = sapply(shft_y,FUN = function(x) {max(1,min(nrow(df),x))})
+    shft_z = sapply(shft_z,FUN = function(x) {max(1,min(nrow(df),x))})
+    #browser()
+    print(summary(cbind(shft_y,shft_z)))
+    
     #twin=c(1:100)/100*max(df$t)
     
     # par(mfrow = c(3,1))
@@ -413,20 +430,23 @@ server <- function(input, output,session) {
       add_lines(y=df$x-1, color=I("black"), name = 'base') %>%
       add_lines(y=df$y, color=I("red"),name = 'mon 1') %>%
       add_lines(y=df$z+1, color=I("blue"), name = 'mon 2') %>%
+      add_lines(y=-1.1+df$y[shft_y], color=I("lightblue"), name = 'shifted mon 1') %>%
+      add_lines(y=-1.2+df$z[shft_z], color=I("pink"), name = 'shifted mon 2') %>%
       add_lines(x=rep(input$tWinLoc/100*nrow(df)*2,2),y=c(-10,10),color=I('green'),name = 'Window loc.')
     p2 = plot_ly(x=dts$ts,legendgroup = "DT") %>% 
-      layout(yaxis=list(range=c(-input$maxShift,input$maxShift))) %>%
+      layout(yaxis=list(range=c(-input$maxShift,input$maxShift)),xaxis=list(range=range(df$t))) %>%
       add_lines(y=dts$dtsy, color=I("pink"),name = 'DT mon 1') %>%
       add_lines(y=dts$dtsz, color=I("lightblue"),name = 'DT mon 2') %>%
       add_lines(y=dts$dtsy*dts$ccsy**2, color=I("red"),name = 'DT mon 1 * R<sup>2') %>%
       add_lines(y=dts$dtsz*dts$ccsz**2, color=I("blue"),name = 'DT mon 2 * R<sup>2') %>%
       add_lines(x=rep(input$tWinLoc/100*nrow(df)*2,2),y=c(-input$maxShift,input$maxShift),color=I('green'),name = 'Window loc.',showlegend = F)
     p3 = plot_ly(x=dts$ts,legendgroup = "CC") %>% 
-      layout(yaxis=list(range=c(0,1))) %>%
+      layout(yaxis=list(range=c(0,1)),xaxis=list(range=range(df$t))) %>%
       add_lines(y=dts$ccsy, color=I("pink"),name = 'R mon 1') %>%
       add_lines(y=dts$ccsz, color=I("lightblue"),name = 'R mon 2') %>%
       add_lines(y=dts$ccsy**2, color=I("red"),name = 'R<sup>2</sup> mon 1') %>%
       add_lines(y=dts$ccsz**2, color=I("blue"),name = 'R<sup>2</sup> mon 2') %>%
+      add_lines(x=range(df$t),y=c(input$corrLim,input$corrLim), color=I("black"),name = 'Correlation limit') %>%
       add_lines(x=rep(input$tWinLoc/100*nrow(df)*2,2),y=c(0,1),color=I('green'),name = 'Window loc.',showlegend = F)
     
     
