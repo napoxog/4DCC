@@ -248,9 +248,20 @@ synLen=1000
 rctvs <- reactiveValues(traceRC = traceRC)
   
 server <- function(input, output,session) {
-  
+  #browser()
   observeEvent(input$nEvent, { rctvs$traceRC <- genRCtrace (nEvents = input$nEvent,freq = input$tFreq)})
   observeEvent(input$tFreq,  { rctvs$traceRC <- genRCtrace (nEvents = input$nEvent,freq = input$tFreq)})
+
+  observe({
+  print("strated new session...")
+  print(paste0(
+              "   protocol: ", session$clientData$url_protocol, 
+              "   hostname: ", session$clientData$url_hostname, 
+              "   pathname: ", session$clientData$url_pathname, 
+              "   port: ",     session$clientData$url_port,     
+              "   search: ",   session$clientData$url_search   
+  ))
+  })
   
   output$plot <- renderPlotly({
     if(input$useReal) {
