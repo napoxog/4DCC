@@ -94,7 +94,8 @@ ui <- dashboardPage(#skin = "black",
       sidebarMenu( id = "tabs",#,collapsed=F,width = 12,background = 'black'), 
                    menuItem(tabName = 'dt',text = 'Full trace DT Analysis',icon = icon('chart-area')), selected=T,
                    menuItem(tabName = 'cc',text = 'Cross-corelation in window',icon = icon('chart-line')),
-                   materialSwitch('useReal',"Use Sleipner data"),
+                   materialSwitch('useReal',"Use Sleipner data",value = F),
+                   materialSwitch('prgrsvApply',"Use Progressive alignment",value = T),
                    menuItem(tabName = 'prm',text = 'Parameters',icon = icon('gear'), startExpanded = T,
                      menuItem(tabName='prm-pr',text = "Display:", startExpanded = T, 
                        sliderInput("tWinLoc",label = "Window Location, %",min = 0, max =100, step = 1,value = 50),
@@ -103,8 +104,8 @@ ui <- dashboardPage(#skin = "black",
                      menuItem(tabName='prm-cc',text = "Correlation parameters:",
                         sliderInput("tWin",label = "Window size, %",min = 5, max =50, step = 1,value = 10),
                         sliderInput("corrLim",label = "Correlation threshold, %",min = 0, max =1, step = 0.1,value = 0.3),
-                        checkboxInput('weiDT',"Weight DT by Cross-correlation",value = T),
-                        checkboxInput('shapeCC',"Shape Cross-correlation",value = T),
+                        checkboxInput('weiDT',"Weight DT by Cross-correlation",value = F),
+                        checkboxInput('shapeCC',"Shape Cross-correlation with Gaussian shaper",value = T),
                         sliderInput("shaperRange",label = "Gaussian sigma range",min = 1, max =3, step = 0.1,value = 1)
                      ),
                      menuItem(tabName='prm-sg',text = "Synthetics generation:",
@@ -117,9 +118,9 @@ ui <- dashboardPage(#skin = "black",
                        checkboxInput('useAbs',"Use absolute values",value = F),
                        checkboxInput('useSquared',"Use squared values",value = F),
                        checkboxInput('useEnvelop',"Use signal Envelop",value = F),
-                       checkboxInput('useNorm',"Normalize",value = T),
-                       checkboxInput('useFilter',"ApplyFilter",value = F),
-                       sliderInput("freqRange",label = "Filter frequency, Hz",min = 0, max =60, step = 1,value = c(10,20))
+                       checkboxInput('useNorm',"Normalize inputs (transformed)",value = T),
+                       checkboxInput('useFilter',"Apply BP Filter",value = F),
+                       sliderInput("freqRange",label = "Filter frequencies gate, Hz",min = 0, max =60, step = 1,value = c(10,20))
                      )
                    )
       )
@@ -194,49 +195,49 @@ getDTvector <- function(df,tWin,useAbs,useSquared,useEnvelop, useNorm, corrLim, 
     t=(winRange[1]:winRange[2])*2
     x=df[winRange[1]:winRange[2],2]
     y=df[winRange[1]:winRange[2],3]
-    z=df[winRange[1]:winRange[2],4]
+    #z=df[winRange[1]:winRange[2],4]
     
     if(!is.null(freq)) {
       x=getFiltered(x,freq)
       y=getFiltered(y,freq)
-      z=getFiltered(z,freq)
+      #z=getFiltered(z,freq)
     }
     if(useAbs) {
       x=abs(x)
       y=abs(y)
-      z=abs(z)
+      #z=abs(z)
     } 
     if(useSquared) {
       x=x**2
       y=y**2
-      z=z**2
+      #z=z**2
     } 
     if(useEnvelop) {
       x=Re(envelope(x))
-      y=Re(envelope(z))
       y=Re(envelope(y))
+      #z=Re(envelope(z))
     } 
     if(useNorm) {
       x=(x-mean(x))/sd(x)
       y=(y-mean(y))/sd(y)
-      z=(z-mean(z))/sd(z)
+      #z=(z-mean(z))/sd(z)
     }
     #print(summary(data.frame(x,y)))
 
     dty = getDT(x,y,corrLim,shapeCC)
-    dtz = getDT(x,z,corrLim,shapeCC)
+    #dtz = getDT(x,z,corrLim,shapeCC)
     
     ccsy[tWinLoc]=dty[1]
     dtsy[tWinLoc]=dty[2]
 
-    ccsz[tWinLoc]=dtz[1]
-    dtsz[tWinLoc]=dtz[2]
+    #ccsz[tWinLoc]=dtz[1]
+    #dtsz[tWinLoc]=dtz[2]
     
     ts[tWinLoc]=mean(t)
     
     #dtsz[tWinLoc]=ccz$lag[which(ccz$acf==ccsz[tWinLoc])]
   }
-  return(data.frame(cbind(ts,ccsy,ccsz,dtsy,dtsz)))
+  return(data.frame(cbind(ts,ccsy,dtsy)))
 }
 
 #getDTvector(dataSleip,5)
@@ -341,18 +342,18 @@ server <- function(input, output,session) {
     #       sub=paste("DT estimation error = ", round(digits=4,100*((input$tShift-dt)/(input$tShift))),"%"))
     
     p1 = plot_ly(x=df$t,legendgroup = "Trace") %>% 
-      layout(legend = list(legendgrouptitle=list(text="<b>Traces</b>"))) %>%
-      add_lines(y=df$x, color=I("gray70"), name = 'base') %>%
-      add_lines(y=df$y, color=I("pink"),name = 'mon 1') %>%
-      add_lines(y=df$z, color=I("lightblue"), name = 'mon 2') %>%
-      add_lines(y=df$xx, color=I("black"), name = 'base transformed') %>%
-      add_lines(y=df$yy, color=I("red"),name = 'mon 1 transformed') %>%
-      add_lines(y=df$zz, color=I("blue"), name = 'mon 2 transformed') 
+      layout() %>%
+      add_lines(legendgroup = "traces",legendgrouptitle = list(text = "<b>Traces in window</b>"),y=df$x, color=I("gray70"), name = 'base') %>%
+      add_lines(legendgroup = "traces",y=df$y, color=I("pink"),name = 'mon 1') %>%
+      add_lines(legendgroup = "traces",y=df$z, color=I("lightblue"), name = 'mon 2') %>%
+      add_lines(legendgroup = "traces",y=df$xx, color=I("black"), name = 'base transformed') %>%
+      add_lines(legendgroup = "traces",y=df$yy, color=I("red"),name = 'mon 1 transformed') %>%
+      add_lines(legendgroup = "traces",y=df$zz, color=I("blue"), name = 'mon 2 transformed') 
     p2 = plot_ly(x=cc$lag[,1,],legendgroup = "CC") %>% 
-      layout(yaxis=list(range=c(-1,1)),legend = list(legendgrouptitle=list(text="<b>CC</b>"))) %>%
-      add_lines(y=cc$acf, color=I("red"),name = 'R mon 1') %>%
-      add_lines(y=ccz$acf, color=I("blue"),name = 'R mon 2') %>%
-      add_lines(y=gausswin(length(cc$acf),input$shaperRange), color=I("lightgreen"),name = 'R shaper')
+      layout(yaxis=list(range=c(-1,1))) %>%
+      add_lines(legendgroup = "cc",legendgrouptitle = list(text = "<b>Correlation in window</b>"),y=cc$acf, color=I("red"),name = 'R mon 1') %>%
+      add_lines(legendgroup = "cc",y=ccz$acf, color=I("blue"),name = 'R mon 2') %>%
+      add_lines(legendgroup = "cc",y=gausswin(length(cc$acf),input$shaperRange), color=I("lightgreen"),name = 'R shaper')
       
     subplot(p1,p2,shareY=T,nrows = 2) %>% layout(title=title,showlegend = T,legend=list(tracegroupgap=300))
   })
@@ -376,16 +377,47 @@ server <- function(input, output,session) {
     #print(winRange)
     df=data.frame(cbind(t=t,x=x,y=y,z=z))
     #print(summary(df))
-    dts <- getDTvector(df = df,
-                       tWin = input$tWin,
-                       useAbs = input$useAbs,
-                       useSquared = input$useSquared,
-                       useEnvelop = input$useEnvelop,
-                       useNorm = input$useNorm,
-                       corrLim = input$corrLim,
-                       shapeCC = if(input$shapeCC) input$shaperRange else NA,
-                       freq = if(input$useFilter) input$freqRange else NULL)
-    
+    dtsy <- getDTvector(df = df[,-4],
+                        tWin = input$tWin,
+                        useAbs = input$useAbs,
+                        useSquared = input$useSquared,
+                        useEnvelop = input$useEnvelop,
+                        useNorm = input$useNorm,
+                        corrLim = input$corrLim,
+                        shapeCC = if(input$shapeCC) input$shaperRange else NA,
+                        freq = if(input$useFilter) input$freqRange else NULL)
+    if(input$prgrsvApply) {
+      q=df$z
+      shft_y = round((df$t - approx(dtsy$ts,dtsy$dtsy,xout = df$t,method = "linear")$y)/2)
+      dt_range=range(shft_y,na.rm = T)
+      shft_y[is.na(shft_y)]=round(seq(dt_range[1],dt_range[2],length.out=nrow(df)))[is.na(shft_y)]
+      df$z=df$z[shft_y]
+      #browser()
+      dtsz <- getDTvector(df = df[,-3],
+                          tWin = input$tWin,
+                          useAbs = input$useAbs,
+                          useSquared = input$useSquared,
+                          useEnvelop = input$useEnvelop,
+                          useNorm = input$useNorm,
+                          corrLim = input$corrLim,
+                          shapeCC = if(input$shapeCC) input$shaperRange else NA,
+                          freq = if(input$useFilter) input$freqRange else NULL)
+      dtsz$dtsy=dtsz$dtsy+dtsy$dtsy
+      df$z=q
+    } else {
+      dtsz <- getDTvector(df = df[,-3],
+                          tWin = input$tWin,
+                          useAbs = input$useAbs,
+                          useSquared = input$useSquared,
+                          useEnvelop = input$useEnvelop,
+                          useNorm = input$useNorm,
+                          corrLim = input$corrLim,
+                          shapeCC = if(input$shapeCC) input$shaperRange else NA,
+                          freq = if(input$useFilter) input$freqRange else NULL)
+    }
+    colnames(dtsz) <- c('ts', 'ccsz','dtsz')
+    dts=cbind(dtsy,dtsz[,-1])
+    #browser()
     if(input$useReal) title="Sleipner_IL1840_XL1130"
     else title=paste("transform: t=t*",input$tScaler,"+",input$tShift)
     
@@ -397,10 +429,13 @@ server <- function(input, output,session) {
       shft_z = round((df$t - approx(dts$ts,dts$dtsz,xout = df$t,method = "linear")$y)/2)
     }
     
+    shft_y[is.na(shft_y)]=c(1:nrow(df))[is.na(shft_y)]
+    shft_z[is.na(shft_z)]=c(1:nrow(df))[is.na(shft_z)]
+    
     shft_y = sapply(shft_y,FUN = function(x) {max(1,min(nrow(df),x))})
     shft_z = sapply(shft_z,FUN = function(x) {max(1,min(nrow(df),x))})
     #browser()
-    print(summary(cbind(shft_y,shft_z)))
+    #print(summary(cbind(shft_y,shft_z)))
     
     #twin=c(1:100)/100*max(df$t)
     
@@ -426,32 +461,45 @@ server <- function(input, output,session) {
     # lines(x=c(0,nrow(dts)),y=c(input$corrLim,input$corrLim),col='green')
     # lines(x=rep(input$tWinLoc,2),y=c(-10,10),col='pink')
     #browser()
-    p1 = plot_ly(x=df$t,legendgroup = "Traces") %>% 
+    half_win = input$tWin/100*nrow(df)
+    win_pos = input$tWinLoc/100*nrow(df)*2
+    #browser()
+    winBox=data.frame(x=c(win_pos-half_win,win_pos-half_win,win_pos+half_win,win_pos+half_win),
+                      y=c(0,1,1,0))
+    #print(winBox)
+    p1 = plot_ly(x=df$t) %>% 
       layout(yaxis=list(range=c(-4,4))) %>%
-      add_lines(y=df$x-1, color=I("black"), name = 'base') %>%
-      add_lines(y=df$y, color=I("red"),name = 'mon 1') %>%
-      add_lines(y=df$z+1, color=I("blue"), name = 'mon 2') %>%
-      add_lines(y=-1.1+df$y[shft_y], color=I("pink"), name = 'shifted mon 1') %>%
-      add_lines(y=-1.2+df$z[shft_z], color=I("lightblue"), name = 'shifted mon 2') %>%
-      add_lines(x=rep(input$tWinLoc/100*nrow(df)*2,2),y=c(-10,10),color=I('green'),name = 'Window loc.')
-    p2 = plot_ly(x=dts$ts,legendgroup = "DT") %>% 
+      add_polygons(legendgroup = "decor",legendgrouptitle = list(text = "<b>Decorations</b>"),
+                   x=winBox$x,y=(winBox$y-0.5)*8,name="Processing window", color=I("lightgreen")) %>%
+      add_lines(legendgroup = "traces",legendgrouptitle = list(text = "<b>Traces</b>"),y=df$x-1, color=I("black"), name = 'base') %>%
+      add_lines(legendgroup = "mon1",legendgrouptitle = list(text = "<b>Montor 1</b>"),y=df$y, color=I("red"),name = 'trace') %>%
+      add_lines(legendgroup = "mon2",legendgrouptitle = list(text = "<b>Montor 2</b>"),y=df$z+1, color=I("blue"), name = 'trace') %>%
+      add_lines(legendgroup = "mon1",y=-1.1+df$y[shft_y], color=I("pink"), name = 'aligned') %>%
+      add_lines(legendgroup = "mon2",y=-1.2+df$z[shft_z], color=I("lightblue"), name = 'aligned') %>%
+      add_lines(legendgroup = "decor",x=rep(input$tWinLoc/100*nrow(df)*2,2),y=c(-10,10),color=I('green'),name = 'Window loc.')
+    p2 = plot_ly(x=dts$ts) %>% 
       layout(yaxis=list(range=c(-input$maxShift,input$maxShift)),xaxis=list(range=range(df$t))) %>%
-      add_lines(y=dts$dtsy, color=I("pink"),name = 'DT mon 1') %>%
-      add_lines(y=dts$dtsz, color=I("lightblue"),name = 'DT mon 2') %>%
-      add_lines(y=dts$dtsy*dts$ccsy**2, color=I("red"),name = 'DT mon 1 * R<sup>2') %>%
-      add_lines(y=dts$dtsz*dts$ccsz**2, color=I("blue"),name = 'DT mon 2 * R<sup>2') %>%
-      add_lines(x=rep(input$tWinLoc/100*nrow(df)*2,2),y=c(-input$maxShift,input$maxShift),color=I('green'),name = 'Window loc.',showlegend = F)
-    p3 = plot_ly(x=dts$ts,legendgroup = "CC") %>% 
+      add_polygons(legendgroup = "decor",legendgrouptitle = list(text = "<b>Decorations</b>"),
+                   x=winBox$x,y=(winBox$y-0.5)*input$maxShift*2,name="Processing window", color=I("lightgreen")) %>%
+      add_lines(legendgroup = "mon1",y=dts$dtsy, color=I("red"),name = 'Delta T') %>%
+      add_lines(legendgroup = "mon2",y=dts$dtsz, color=I("blue"),name = 'Delta T') %>%
+      add_lines(legendgroup = "mon1",y=dts$dtsy*dts$ccsy**2, color=I("pink"),name = 'Delta T * R<sup>2') %>%
+      add_lines(legendgroup = "mon2",y=dts$dtsz*dts$ccsz**2, color=I("lightblue"),name = 'Delta T * R<sup>2') %>%
+      add_lines(legendgroup = "decor",x=rep(input$tWinLoc/100*nrow(df)*2,2),y=c(-input$maxShift,input$maxShift),color=I('green'),name = 'Window loc.',showlegend = F)
+    p3 = plot_ly(x=dts$ts) %>% 
       layout(yaxis=list(range=c(0,1)),xaxis=list(range=range(df$t))) %>%
-      add_lines(y=dts$ccsy, color=I("pink"),name = 'R mon 1') %>%
-      add_lines(y=dts$ccsz, color=I("lightblue"),name = 'R mon 2') %>%
-      add_lines(y=dts$ccsy**2, color=I("red"),name = 'R<sup>2</sup> mon 1') %>%
-      add_lines(y=dts$ccsz**2, color=I("blue"),name = 'R<sup>2</sup> mon 2') %>%
-      add_lines(x=range(df$t),y=c(input$corrLim,input$corrLim), color=I("black"),name = 'Correlation limit') %>%
-      add_lines(x=rep(input$tWinLoc/100*nrow(df)*2,2),y=c(0,1),color=I('green'),name = 'Window loc.',showlegend = F)
+      add_polygons(legendgroup = "decor",legendgrouptitle = list(text = "<b>Decorations</b>"),
+                   x=winBox$x,y=winBox$y,name="Processing window", color=I("lightgreen")) %>%
+      add_lines(legendgroup = "mon1",y=dts$ccsy, color=I("red"),name = 'R') %>%
+      add_lines(legendgroup = "mon2",y=dts$ccsz, color=I("blue"),name = 'R') %>%
+      add_lines(legendgroup = "mon1",y=dts$ccsy**2, color=I("pink"),name = 'R<sup>2</sup>') %>%
+      add_lines(legendgroup = "mon2",y=dts$ccsz**2, color=I("lightblue"),name = 'R<sup>2</sup>') %>%
+      add_lines(legendgroup = "decor",x=range(df$t),y=c(input$corrLim,input$corrLim), color=I("black"),name = 'Correlation limit') %>%
+      add_lines(legendgroup = "decor",x=rep(win_pos,2),y=c(0,1),color=I('green'),name = 'Window loc.',showlegend = F)
     
     
-    subplot(p1,p2,p3,shareY=T,nrows = 3) %>% layout(title=title,showlegend = T,legend=list(tracegroupgap=300))
+    subplot(p1,p2,p3,shareX=T,shareY=T,nrows = 3) %>% 
+      layout(title=title,showlegend = T,legend=list(tracegroupgap=0))
     
   })
 }
