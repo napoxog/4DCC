@@ -94,16 +94,20 @@ ui <- dashboardPage(#skin = "black",
       sidebarMenu( id = "tabs",#,collapsed=F,width = 12,background = 'black'), 
                    menuItem(tabName = 'dt',text = 'Full trace DT Analysis',icon = icon('chart-area')), selected=T,
                    menuItem(tabName = 'cc',text = 'Cross-corelation in window',icon = icon('chart-line')),
+                   materialSwitch('useReal',"Use Sleipner data"),
                    menuItem(tabName = 'prm',text = 'Parameters',icon = icon('gear'), startExpanded = T,
                      menuItem(tabName='prm-pr',text = "Display:", startExpanded = T, 
                        sliderInput("tWinLoc",label = "Window Location, %",min = 0, max =100, step = 1,value = 50),
-                       sliderInput("tWin",label = "Window size, %",min = 5, max =50, step = 1,value = 10),
-                       sliderInput("corrLim",label = "Correlation threshold, %",min = 0, max =1, step = 0.1,value = 0.3),
                        sliderInput("maxShift",label = "Max shift displayed, ms",min = 10, max =200, step = 10,value = 30)
                      ),
+                     menuItem(tabName='prm-cc',text = "Correlation parameters:",
+                        sliderInput("tWin",label = "Window size, %",min = 5, max =50, step = 1,value = 10),
+                        sliderInput("corrLim",label = "Correlation threshold, %",min = 0, max =1, step = 0.1,value = 0.3),
+                        checkboxInput('weiDT',"Weight DT by Cross-correlation",value = T),
+                        checkboxInput('shapeCC',"Shape Cross-correlation",value = T),
+                        sliderInput("shaperRange",label = "Gaussian sigma range",min = 1, max =3, step = 0.1,value = 1)
+                     ),
                      menuItem(tabName='prm-sg',text = "Synthetics generation:",
-                       materialSwitch('useReal',"Use Sleipner data"),
-                       #checkboxInput('useReal',"Use Sleipner data",value = F),
                        sliderInput("nEvent",label = "Events number",min = 1, max =100, step = 1,value = 8),
                        sliderInput("tFreq",label = "Base frequency",min = 5, max =100, step = 1,value = 15),
                        sliderInput("tScaler",label = "Scale T axis by",min = 0.8, max =1.2, step = 0.01,value = 1.05),
@@ -114,9 +118,6 @@ ui <- dashboardPage(#skin = "black",
                        checkboxInput('useSquared',"Use squared values",value = F),
                        checkboxInput('useEnvelop',"Use signal Envelop",value = F),
                        checkboxInput('useNorm',"Normalize",value = T),
-                       checkboxInput('weiDT',"Weight DT by Cross-correlation",value = T),
-                       checkboxInput('shapeCC',"Shape Cross-correlation",value = T),
-                       sliderInput("shaperRange",label = "Gaussian sigma range",min = 1, max =3, step = 0.1,value = 1),
                        checkboxInput('useFilter',"ApplyFilter",value = F),
                        sliderInput("freqRange",label = "Filter frequency, Hz",min = 0, max =60, step = 1,value = c(10,20))
                      )
@@ -430,8 +431,8 @@ server <- function(input, output,session) {
       add_lines(y=df$x-1, color=I("black"), name = 'base') %>%
       add_lines(y=df$y, color=I("red"),name = 'mon 1') %>%
       add_lines(y=df$z+1, color=I("blue"), name = 'mon 2') %>%
-      add_lines(y=-1.1+df$y[shft_y], color=I("lightblue"), name = 'shifted mon 1') %>%
-      add_lines(y=-1.2+df$z[shft_z], color=I("pink"), name = 'shifted mon 2') %>%
+      add_lines(y=-1.1+df$y[shft_y], color=I("pink"), name = 'shifted mon 1') %>%
+      add_lines(y=-1.2+df$z[shft_z], color=I("lightblue"), name = 'shifted mon 2') %>%
       add_lines(x=rep(input$tWinLoc/100*nrow(df)*2,2),y=c(-10,10),color=I('green'),name = 'Window loc.')
     p2 = plot_ly(x=dts$ts,legendgroup = "DT") %>% 
       layout(yaxis=list(range=c(-input$maxShift,input$maxShift)),xaxis=list(range=range(df$t))) %>%
