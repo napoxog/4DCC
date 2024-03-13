@@ -11,11 +11,11 @@ seed=runif(1)
 
 genRCtrace <- function (nEvents=10, scale=1, freq=25) {
   .Random.seed <- seed
-  tEvents=runif(n = nEvents)*0.8
+  tEvents=runif(n = nEvents)*0.6+0.2
   tScals=runif(n = nEvents,min = -1, max = 1)
   tFreqs=runif(n = nEvents,min = freq/2, max = freq*2)
   odf=data.frame(tEvents,tScals,tFreqs)
-  #print(summary(odf))
+  print(summary(odf))
   return(odf)
 }
 
@@ -92,29 +92,31 @@ ui <- dashboardPage(#skin = "black",
   
   dashboardSidebar(collapsed = F,width = 340,
       sidebarMenu( id = "tabs",#,collapsed=F,width = 12,background = 'black'), 
-                   menuItem(tabName = 'dt',text = 'Full trace DT Analysis',icon = icon('chart-area')), selected=T,
-                   menuItem(tabName = 'cc',text = 'Cross-corelation in window',icon = icon('chart-line')),
+                   menuItem(tabName = 'dt',text = h3('Full trace DT Analysis', .noWS="outside"), selected=T),#icon = icon('chart-area')),
                    materialSwitch('useReal',"Use Sleipner data",value = F),
-                   materialSwitch('prgrsvApply',"Use Progressive alignment",value = T),
-                   menuItem(tabName = 'prm',text = 'Parameters',icon = icon('gear'), startExpanded = T,
-                     menuItem(tabName='prm-pr',text = "Display:", startExpanded = T, 
+                   materialSwitch('useAutoWin',"Automatic windiw size",value = T),
+                   materialSwitch('prgrsvApply',"Progressive alignment",value = T),
+                   menuItem(tabName = 'cc',text = h3('Local Cross-corelation QC')),#icon = icon('chart-line')),
+                   menuItem(tabName = 'prm',text = h3('Parameters'), startExpanded = T,#,icon = icon('gear')
+                     menuItem(tabName='prm-pr',text = h4("Display:"), startExpanded = T, 
                        sliderInput("tWinLoc",label = "Window Location, %",min = 0, max =100, step = 1,value = 50),
                        sliderInput("maxShift",label = "Max shift displayed, ms",min = 10, max =200, step = 10,value = 30)
                      ),
-                     menuItem(tabName='prm-cc',text = "Correlation parameters:",
+                     menuItem(tabName='prm-cc',text = h4("Correlation parameters:"),
                         sliderInput("tWin",label = "Window size, %",min = 5, max =50, step = 1,value = 10),
+                        sliderInput("nWin",label = "Number of esimations",min = 10, max =1000, step = 10,value = 100),
                         sliderInput("corrLim",label = "Correlation threshold, %",min = 0, max =1, step = 0.1,value = 0.3),
                         checkboxInput('weiDT',"Weight DT by Cross-correlation",value = F),
                         checkboxInput('shapeCC',"Shape Cross-correlation with Gaussian shaper",value = T),
                         sliderInput("shaperRange",label = "Gaussian sigma range",min = 1, max =3, step = 0.1,value = 1)
                      ),
-                     menuItem(tabName='prm-sg',text = "Synthetics generation:",
+                     menuItem(tabName='prm-sg',text = h4("Synthetics generation:"),
                        sliderInput("nEvent",label = "Events number",min = 1, max =100, step = 1,value = 8),
                        sliderInput("tFreq",label = "Base frequency",min = 5, max =100, step = 1,value = 15),
                        sliderInput("tScaler",label = "Scale T axis by",min = 0.8, max =1.2, step = 0.01,value = 1.05),
-                       sliderInput("tShift",label = "Shift T axis by",min = -50, max =50, step = 2,value = -10)
+                       sliderInput("tShift",label = "Shift T axis by",min = -50, max =50, step = 2,value = -20)
                      ),
-                     menuItem(tabName='prm-tr',text = "Transformations:",
+                     menuItem(tabName='prm-tr',text = h4("Transformations:"),
                        checkboxInput('useAbs',"Use absolute values",value = F),
                        checkboxInput('useSquared',"Use squared values",value = F),
                        checkboxInput('useEnvelop',"Use signal Envelop",value = F),
@@ -143,7 +145,7 @@ getDT <- function (x,y, corrLim, shapeCC=1) {
   #print(summary(x))
   #print(summary(y))
   #print(paste("getDT: ",sd(x),length(x),sd(y),length(y)))
-  ccy <- ccf(x = x,y=y,lag.max = length(x)/2,type = 'correlation',plot = F)
+  ccy <- ccf(x = x,y=y,lag.max = length(x)/2,type = 'correlation',plot = F,demean = F)
   ccy$lag=ccy$lag
 
   if(!is.na(shapeCC)) ccy$acf=gausswin(length(ccy$acf),shapeCC)*ccy$acf
@@ -180,59 +182,50 @@ getFiltered <- function (x, freq = c(5,10)) {
   return(filtfilt(bf,x))
 }
 
-getDTvector <- function(df,tWin,useAbs,useSquared,useEnvelop, useNorm, corrLim, freq=NULL, shapeCC=1) {
+getDTvector <- function(n=100, df,tWin,useAbs,useSquared,useEnvelop, useNorm, corrLim, freq=NULL, shapeCC=1) {
 
-  n=100
+  
   dtsy=rep(0,n)
   ccsy=rep(0,n)
   dtsz=rep(0,n)
   ccsz=rep(0,n)
   ts=rep(0,n)
-  for(tWinLoc in c(0:n)) {
-    winRange=c(floor(nrow(df)*max(0,(tWinLoc-tWin/2))/100),
-               floor(nrow(df)*min(100,(tWinLoc+tWin/2))/100))
+  tWin=tWin/100*n
+  for(tWinLoc in c(1:n)) {
+    winRange=c(round(nrow(df)*min(1,max(0,(tWinLoc-tWin/2))/n)),
+               round(nrow(df)*min(1,max(0,(tWinLoc+tWin/2))/n)))
     #print(paste("winRange: ",winRange))
     t=(winRange[1]:winRange[2])*2
     x=df[winRange[1]:winRange[2],2]
     y=df[winRange[1]:winRange[2],3]
-    #z=df[winRange[1]:winRange[2],4]
-    
+
     if(!is.null(freq)) {
       x=getFiltered(x,freq)
       y=getFiltered(y,freq)
-      #z=getFiltered(z,freq)
     }
     if(useAbs) {
       x=abs(x)
       y=abs(y)
-      #z=abs(z)
     } 
     if(useSquared) {
       x=x**2
       y=y**2
-      #z=z**2
     } 
     if(useEnvelop) {
       x=Re(envelope(x))
       y=Re(envelope(y))
-      #z=Re(envelope(z))
     } 
     if(useNorm) {
       x=(x-mean(x))/sd(x)
       y=(y-mean(y))/sd(y)
-      #z=(z-mean(z))/sd(z)
     }
     #print(summary(data.frame(x,y)))
 
     dty = getDT(x,y,corrLim,shapeCC)
-    #dtz = getDT(x,z,corrLim,shapeCC)
-    
+
     ccsy[tWinLoc]=dty[1]
     dtsy[tWinLoc]=dty[2]
 
-    #ccsz[tWinLoc]=dtz[1]
-    #dtsz[tWinLoc]=dtz[2]
-    
     ts[tWinLoc]=mean(t)
     
     #dtsz[tWinLoc]=ccz$lag[which(ccz$acf==ccsz[tWinLoc])]
@@ -319,10 +312,10 @@ server <- function(input, output,session) {
     }
     #print(summary(df))
     #getDTvector(t,y,y2,winRange)
-    cc <- ccf(x = df$xx,y=df$yy,lag.max = nrow(df)/2,type = 'correlation',plot = F)
+    cc <- ccf(x = df$xx,y=df$yy,lag.max = nrow(df)/2,type = 'correlation',plot = F,demean = F)
     cc$lag=cc$lag*2
 
-    ccz <- ccf(x = df$xx,y=df$zz,lag.max = nrow(df)/2,type = 'correlation',plot = F)
+    ccz <- ccf(x = df$xx,y=df$zz,lag.max = nrow(df)/2,type = 'correlation',plot = F,demean = F)
     ccz$lag=ccz$lag*2
     
     if(input$shapeCC) cc$acf=gausswin(length(cc$acf),input$shaperRange)*cc$acf
@@ -360,7 +353,7 @@ server <- function(input, output,session) {
       add_lines(legendgroup = "traces",y=df$xx, color=I("black"), name = 'base transformed') %>%
       add_lines(legendgroup = "traces",y=df$yy, color=I("red"),name = 'mon 1 transformed') %>%
       add_lines(legendgroup = "traces",y=df$zz, color=I("blue"), name = 'mon 2 transformed') 
-    p2 = plot_ly(x=cc$lag[,1,],legendgroup = "CC") %>% 
+    p2 = plot_ly(x=cc$lag[,1,]*2,legendgroup = "CC") %>% 
       layout(yaxis=list(range=c(-1,1))) %>%
       add_lines(legendgroup = "cc",legendgrouptitle = list(text = "<b>Correlation in window</b>"),y=cc$acf, color=I("red"),name = 'R mon 1') %>%
       add_lines(legendgroup = "cc",y=ccz$acf, color=I("blue"),name = 'R mon 2') %>%
@@ -387,9 +380,28 @@ server <- function(input, output,session) {
     }
     #print(winRange)
     df=data.frame(cbind(t=t,x=x,y=y,z=z))
+    
+    spec=spec.fft(df$x,df$t/1000/pi)
+    medfreq=median(spec$fx[spec$fx>0][amax(spec$PSD[spec$fx>0 & spec$PSD>mean(spec$PSD)])])-
+      sd(spec$fx[spec$fx>0][amax(spec$PSD[spec$fx>0 & spec$PSD>mean(spec$PSD)])])
+    print(paste("med freq, Hz = ",medfreq))
+    if(input$useAutoWin) {
+      t=seq(-10,10, length.out=1000)
+      s=ricker(t=t,f = medfreq)
+      sdt=max(20,min(500,diff(range(t[abs(s)>1e-3]))*1000))
+      sdt=max(20,min(500,4000/medfreq))
+      sdt_prc=round(100*sdt/diff(range(df$t)))
+      updateSliderInput(session = session,"tWin",value = sdt_prc)
+    } else {
+      sdt_prc=input$tWin
+      sdt=input$tWin*diff(range(df$t))/100
+    }
+    print(paste("win estimate, ms = ",sdt," (", sdt_prc, "%)"))
+    nDT=input$nWin
+    #browser()
     #print(summary(df))
-    dtsy <- getDTvector(df = df[,-4],
-                        tWin = input$tWin,
+    dtsy <- getDTvector(df = df[,-4], n = nDT,
+                        tWin = sdt_prc, #input$tWin,
                         useAbs = input$useAbs,
                         useSquared = input$useSquared,
                         useEnvelop = input$useEnvelop,
@@ -404,8 +416,8 @@ server <- function(input, output,session) {
       shft_y[is.na(shft_y)]=round(seq(dt_range[1],dt_range[2],length.out=nrow(df)))[is.na(shft_y)]
       df$z=df$z[shft_y]
       #browser()
-      dtsz <- getDTvector(df = df[,-3],
-                          tWin = input$tWin,
+      dtsz <- getDTvector(df = df[,-3], n = nDT,
+                          tWin = sdt_prc, #input$tWin,
                           useAbs = input$useAbs,
                           useSquared = input$useSquared,
                           useEnvelop = input$useEnvelop,
@@ -416,8 +428,8 @@ server <- function(input, output,session) {
       dtsz$dtsy=dtsz$dtsy+dtsy$dtsy
       df$z=q
     } else {
-      dtsz <- getDTvector(df = df[,-3],
-                          tWin = input$tWin,
+      dtsz <- getDTvector(df = df[,-3], n = nDT,
+                          tWin = sdt_prc, #input$tWin,
                           useAbs = input$useAbs,
                           useSquared = input$useSquared,
                           useEnvelop = input$useEnvelop,
@@ -439,9 +451,10 @@ server <- function(input, output,session) {
       shft_y = round((df$t - approx(dts$ts,dts$dtsy,xout = df$t,method = "linear")$y)/2)
       shft_z = round((df$t - approx(dts$ts,dts$dtsz,xout = df$t,method = "linear")$y)/2)
     }
-    
-    shft_y[is.na(shft_y)]=c(1:nrow(df))[is.na(shft_y)]
-    shft_z[is.na(shft_z)]=c(1:nrow(df))[is.na(shft_z)]
+    ddRange_y=range(shft_y,na.rm = T)
+    ddRange_z=range(shft_z,na.rm = T)
+    shft_y[is.na(shft_y)]=seq(ddRange_y[1],ddRange_y[2],nrow(df))[is.na(shft_y)]
+    shft_z[is.na(shft_z)]=seq(ddRange_z[1],ddRange_z[2],nrow(df))[is.na(shft_z)]
     
     shft_y = sapply(shft_y,FUN = function(x) {max(1,min(nrow(df),x))})
     shft_z = sapply(shft_z,FUN = function(x) {max(1,min(nrow(df),x))})
@@ -472,7 +485,7 @@ server <- function(input, output,session) {
     # lines(x=c(0,nrow(dts)),y=c(input$corrLim,input$corrLim),col='green')
     # lines(x=rep(input$tWinLoc,2),y=c(-10,10),col='pink')
     #browser()
-    half_win = input$tWin/100*nrow(df)
+    half_win = sdt_prc/100*nrow(df)
     win_pos = input$tWinLoc/100*nrow(df)*2
     #browser()
     winBox=data.frame(x=c(win_pos-half_win,win_pos-half_win,win_pos+half_win,win_pos+half_win),
@@ -508,7 +521,15 @@ server <- function(input, output,session) {
       add_lines(legendgroup = "decor",x=range(df$t),y=c(input$corrLim,input$corrLim), color=I("black"),name = 'Correlation limit') %>%
       add_lines(legendgroup = "decor",x=rep(win_pos,2),y=c(0,1),color=I('green'),name = 'Window loc.',showlegend = F)
     
+    # wf=waterfall(y=df$x,x=df$t/1000,nf = 1)
     
+    
+    
+    # p4 = plot_ly(x=df$t) %>%
+    #  layout(xaxis=list(range=c(0,250))) %>%
+    #  add_lines(legendgroup = "decor",legendgrouptitle = list(text = "<b>Decorations</b>"),
+    #            x=spec$fx[spec$fx>0],y=spec$PSD[spec$fx>0])
+    #browser()
     subplot(p1,p2,p3,shareX=T,shareY=T,nrows = 3) %>% 
       layout(title=title,showlegend = T,legend=list(tracegroupgap=0))
     
