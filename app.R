@@ -69,8 +69,9 @@ print(c(cc$lag[which(cc$acf==max(cc$acf))],max(cc$acf)))
 
 
 
-dataSleip <- read.csv2(file = "Sleipner_IL1840_XL1130.csv",sep = ',',quote = '"',dec = '.')
-
+dataSleipRAW <- read.csv2(file = "Sleipner_IL1840_XL1130.csv",sep = ',',quote = '"',dec = '.')
+dataSleipDSE <- read.csv2(file = "Sleipner_IL1840_XL1130_DSE.csv",sep = ',',quote = '"',dec = '.')
+dataSleip<-dataSleipDSE
 
 
 #plot(t,getRandomRicker(t,10,1),t='l')
@@ -84,7 +85,7 @@ require(spectral)
 require(ggplot2)
 require(gridExtra)
 require(plotly)
-
+#### GUI ####
 ui <- dashboardPage(#skin = "black", 
   
   # Application title
@@ -92,29 +93,32 @@ ui <- dashboardPage(#skin = "black",
   
   dashboardSidebar(collapsed = F,width = 340,
       sidebarMenu( id = "tabs",#,collapsed=F,width = 12,background = 'black'), 
-                   menuItem(tabName = 'dt',text = h3('Full trace DT Analysis', .noWS="outside"), selected=T),#icon = icon('chart-area')),
-                   materialSwitch('useReal',"Use Sleipner data",value = F),
-                   materialSwitch('useAutoWin',"Automatic windiw size",value = T),
-                   materialSwitch('prgrsvApply',"Progressive alignment",value = T),
-                   menuItem(tabName = 'cc',text = h3('Local Cross-corelation QC')),#icon = icon('chart-line')),
+                   menuItem(tabName = 'dt',text = h3('Full trace DT Analysis', .noWS="outside"), selected=F),#icon = icon('chart-area')),
+                   materialSwitch('useReal',"Use Sleipner 4D data",right = T,value = F),
+                   materialSwitch('useAutoWin',"Automatic window size",right = T,value = T),
+                   materialSwitch('prgrsvApply',"Progressive alignment",right = T,value = T),
+                   materialSwitch('strtchApply',"Apply de-Stretch",right = T,value = T),
+                   materialSwitch('phaseApply',"Apply de-Phase",right = T,value = T),
+                   menuItem(tabName = 'cc',text = h3('Local Cross-corelation QC'), selected=T),#icon = icon('chart-line')),
                    menuItem(tabName = 'prm',text = h3('Parameters'), startExpanded = T,#,icon = icon('gear')
                      menuItem(tabName='prm-pr',text = h4("Display:"), startExpanded = T, 
                        sliderInput("tWinLoc",label = "Window Location, %",min = 0, max =100, step = 1,value = 50),
-                       sliderInput("maxShift",label = "Max shift displayed, ms",min = 10, max =200, step = 10,value = 30)
+                       sliderInput("maxShift",label = "Max shift displayed, ms",min = 10, max =200, step = 10,value = 100)
                      ),
                      menuItem(tabName='prm-cc',text = h4("Correlation parameters:"),
-                        sliderInput("tWin",label = "Window size, %",min = 5, max =50, step = 1,value = 10),
-                        sliderInput("nWin",label = "Number of esimations",min = 10, max =1000, step = 10,value = 100),
+                        sliderInput("tWin",label = "Window size, %",min = 5, max =50, step = 1,value = 30),
+                        sliderInput("nWin",label = "Number of esimations",min = 10, max =100, step = 10,value = 10),
                         sliderInput("corrLim",label = "Correlation threshold, %",min = 0, max =1, step = 0.1,value = 0.3),
                         checkboxInput('weiDT',"Weight DT by Cross-correlation",value = F),
                         checkboxInput('shapeCC',"Shape Cross-correlation with Gaussian shaper",value = T),
-                        sliderInput("shaperRange",label = "Gaussian sigma range",min = 1, max =3, step = 0.1,value = 1)
+                        sliderInput("shaperRange",label = "Gaussian sigma range",min = 1, max =3, step = 0.1,value = 3),
+                        sliderInput("stretchLags",label = "Stretch Analysis resolution",min = 5, max =100, step = 5,value = 30)
                      ),
                      menuItem(tabName='prm-sg',text = h4("Synthetics generation:"),
-                       sliderInput("nEvent",label = "Events number",min = 1, max =100, step = 1,value = 8),
-                       sliderInput("tFreq",label = "Base frequency",min = 5, max =100, step = 1,value = 15),
-                       sliderInput("tScaler",label = "Scale T axis by",min = 0.8, max =1.2, step = 0.01,value = 1.05),
-                       sliderInput("tShift",label = "Shift T axis by",min = -50, max =50, step = 2,value = -20)
+                       sliderInput("nEvent",label = "Events number",min = 1, max =100, step = 1,value = 37),
+                       sliderInput("tFreq",label = "Base frequency",min = 5, max =100, step = 1,value = 35),
+                       sliderInput("tScaler",label = "Scale T axis by",min = 0.8, max =1.2, step = 0.01,value = 1.11),
+                       sliderInput("tShift",label = "Shift T axis by",min = -50, max =50, step = 2,value = -50)
                      ),
                      menuItem(tabName='prm-tr',text = h4("Transformations:"),
                        checkboxInput('useAbs',"Use absolute values",value = F),
@@ -130,7 +134,7 @@ ui <- dashboardPage(#skin = "black",
   dashboardBody(
     tabItems(
     tabItem(tabName = 'cc',
-      plotlyOutput('plot',height = "800")#,width = "10", height = "800")
+      plotlyOutput('plot',height = "1200")#,width = "10", height = "800")
     ),
     tabItem(tabName = 'dt',
       plotlyOutput('plotDT', height = "1200")#,width = "10", height = "800")
@@ -141,11 +145,227 @@ ui <- dashboardPage(#skin = "black",
   ))
 )
 
-getDT <- function (x,y, corrLim, shapeCC=1) {
+applyTaper <- function (x, size=1/8) {
+  X=x
+  taper=round(1:round((length(x)*size)))
+  taperW=(1-cos(pi/(length(x)*size)*taper))/2
+  #browser();
+  X[taper]= taperW[taper] * x[taper]
+  X[(length(x)-taper+1)]=taperW[taper] * x[(length(x)-taper+1)]
+  return(X)
+}
+
+applyMatrixRotate <- function (data, angle) {
+  ## convert degrees to radians
+  angle <- angle * pi / 180
+  
+  ## build rotation matrix
+  rot <- rbind(c(0, -sin(angle), cos(angle)),
+               c(0, cos(angle), sin(angle)),
+               c(1, 0, 0))
+  
+  ## homogenise input data sets
+  # if(nrow(data) == 2) {
+  #   data <- rbind(data,
+  #                 rep(0, ncol(data)))
+  # }
+  #data=applyTaper(data)
+  data <- rbind(data, rep(1, length(data)),rep(0, length(data)))
+  #data <- rbind(data, data,data)
+  ## rotate signal traces
+  data_out <- t(t(data) %*% rot)
+  
+  ## prepare output data
+  #data_out <- data_out[3:1,]
+  #browser()
+  #phase=90;w=c(1:(250/length(Xfft))); X_ph = Xfft*(cos(phase/180*pi) + -1i*sin(phase/180*pi)); x_ph = ifft(X_ph);xxx=applyMatrixRotate (x, phase);xxx1=xxx[1,];xxx2=xxx[2,]
+  #plot(Re(x_ph),t='l',col='red',ylim=c(-2,2)); lines(x) ; lines (X,col='blue'); lines(xxx1,col='green');lines(xxx2,col='pink')
+  return(data_out[1,])
+}
+
+applyHilbertRotate <- function(x, phase=180.) {
+  #X=applyTaper(x)
+  
+  #print("phase")
+  #print(summary(wave))
+  waveH=hilbert(f=1000, x)
+  #summary(Re(ht)-wave$a)
+  #print(phase)
+  
+  phase=Re(waveH)*0 + phase/180.*pi
+  #print(phase)
+  #print(class(cos(phase)*Re(waveH)-sin(phase)*Im(waveH)))
+  #wave$a <- wave$a - (cos(phase)*Re(waveH)-sin(phase)*Im(waveH))
+  x <-   cos(phase)*Re(waveH)-sin(phase)*Im(waveH)
+  #browser()
+  #print(summary(wave))
+  return(Re(x)[,1])
+}
+applyPhaseRotation <- function(x, phase=180.) {
+  #X = rep(0,length(x)*2)
+  #range=round(0.01+c((length(X)/4+1):round((length(X)*3/4))))
+  #X [range] = x[1:length(x)]
+  X=applyTaper(x)
+  #taper=round(1:round((length(x)/4)))
+  #taperW=(1-cos(pi*4/(length(x))*taper))/2
+  #X[taper]= taperW[taper] * x[taper]
+  #X[(length(x)-taper+1)]=taperW[taper] * x[(length(x)-taper+1)]
+  #X = rep(0,length(x))
+  #X = x
+  Xfft = fft(X);
+  #w = (2*pi/length(Xfft)) * (1:(length(Xfft)));
+  w=c(1:(250/length(Xfft)))  
+  k = pi*phase/180.;
+  X_ph = Xfft*exp(-1i*(w+k));
+  x_ph = ifft(X_ph)/length(X_ph);
+  applyMatrixRotate (X, phase) 
+  applyHilbertRotate (X, phase)
+  #phase=120;plot(Re(H(X)*exp(1i*pi*phase/180)),t='l',ylim=c(-3,3)); lines(X,col='red')
+  browser()
+  return(Re(x_ph))
+}
+
+dePhaseRange = seq(-90,90,5)
+
+dePhase <- function(x,y)  {
+  lento = length(x)
+  strch = dePhaseRange
+  nstr=length(strch)
+  ccs=strch
+  sdxy=strch
+  ccs_ys=list()
+  y1=y
+  ccfLag=0.5
+  #x=applyTaper(x)
+  #applyPhaseRotation(x)
+  #cc1=rep(0,to)
+  #  print(paste("before",strch))
+  y_spl=y#[round(lento*0.25):round(lento*0.75)]
+  
+  sdorig=sd(x-y,na.rm = T)
+  ccforig=ccf(x = x,y=y,lag.max = length(x)*ccfLag,type = 'correlation',plot = F,demean = F)
+  ccorig=max(ccforig$acf)
+  ccs=ccorig # fill ccs with maxCCorig
+  #if(ccorig<0.6) 
+  #  return(list(cc=1,stretch=0,y=y))
+  
+  maxCClag=ccforig$lag[which(ccorig==ccforig$acf)]
+  assym=(maxCClag/diff(range(ccforig$lag))*2)*10
+  #print(c(maxCClag,range(ccforig$lag),assym))
+  
+  t=seq(-10+assym,10+assym,length.out=length(y_spl))
+  #t=seq(-10,10,length.out=length(y_spl))
+  
+  #print(range(t))
+
+  for(ns in c(1:nstr)){
+    y1=applyHilbertRotate(y,phase = strch[ns])
+    #y1=spline(x=t*strch[ns],y=y_spl,xout = t,method = "fmm")$y
+    #browser()
+    sdxy[ns]=sd(x-y1,na.rm = T)
+    cc=ccf(x = x,y=y1,lag.max = length(x)*ccfLag,type = 'correlation',plot = F,demean = F)
+    ccs[ns]=max(cc$acf)
+    ccs_ys[ns]=list(y1)
+    #if(sd(x)>0.5)     browser()
+    #print(paste("Stretch:",round(strch[ns],digits=3),"; CC=",round(max(cc$acf),digits = 3)))
+    
+  }
+  #browser()
+  maxCC=max(ccs)
+  maxsidx=match(maxCC,ccs)
+  
+  minSD=min(sdxy)
+  minSDidx=match(minSD,sdxy)
+  
+  print(paste("Phase:",round(strch[maxsidx],3),", CC=",round(ccorig,3)," >> ",round(maxCC,3),", SD=",round(sdorig,3)," >> ",round(minSD,3)))
+  #if(sd(x)>0.5) browser() 
+  #t=c(1:length(x)); plot(x=t,y=x,t='l',col='red'); lines(x=t,y=y); lines(x=t*strch[maxsidx]+max(t)*(strch[maxsidx]-1)/2,y=y1,col='blue'); plot(x=strch,y=ccs,t='l')
+  #if(maxCC<0.0) return(list(cc=1,stretch=1,y=y))
+  
+  adjusted=list(cc=ccs,sd=sdxy,stretch=strch[maxsidx],y=unlist(ccs_ys[maxsidx]))
+  return(adjusted)
+}
+  
+
+stretchAdjustRange=c(0.5,1.5)
+
+deStretch <- function(x,y,nstr=11) {
+  lento = length(x)
+  strch = seq(stretchAdjustRange[1],stretchAdjustRange[2],length.out=nstr)
+  ccs=strch
+  sdxy=strch
+  ccs_ys=list()
+  y1=y
+  ccfLag=1
+  #x=applyTaper(x)
+  #applyPhaseRotation(x)
+  #cc1=rep(0,to)
+  #  print(paste("before",strch))
+  y_spl=y#[round(lento*0.25):round(lento*0.75)]
+
+  sdorig=sd(x-y,na.rm = T)
+  ccforig=ccf(x = x,y=y,lag.max = length(x)*ccfLag,type = 'correlation',plot = F,demean = F)
+  ccorig=max(ccforig$acf)
+  ccs=ccorig # fill ccs with maxCCorig
+  #if(ccorig<0.6) return(list(cc=ccs,stretch=1,y=y))
+
+  maxCClag=ccforig$lag[which(ccorig==ccforig$acf)]
+  assym=(maxCClag/diff(range(ccforig$lag))*2)*10
+  #print(c(maxCClag,range(ccforig$lag),assym))
+  
+  t=seq(-10+assym,10+assym,length.out=length(y_spl))
+  #t=seq(-10,10,length.out=length(y_spl))
+  
+  #print(range(t))
+  
+  for(ns in c(1:nstr)){
+    y1=approx(x=t/strch[ns],y=y_spl,xout = t,method = "linear",rule = 2)$y
+    #y1=spline(x=t*strch[ns],y=y_spl,xout = t,method = "fmm")$y
+    y1=applyTaper(y1)
+    #browser()
+    sdxy[ns]=sd(x-y1,na.rm = T)
+    cc=ccf(x = x,y=y1,lag.max = length(x)*ccfLag,type = 'correlation',plot = F,demean = F)
+    ccs[ns]=max(cc$acf)
+    ccs_ys[ns]=list(y1)
+    #if(sd(x)>0.5)     browser()
+    #print(paste("Stretch:",round(strch[ns],digits=3),"; CC=",round(max(cc$acf),digits = 3)))
+    
+  }
+  maxCC=max(ccs)
+  maxsidx=match(maxCC,ccs)
+
+  minSD=min(sdxy)
+  minSDidx=match(minSD,sdxy)
+
+  print(paste("Stretch:",round(strch[maxsidx],3),", CC=",round(ccorig,3)," >> ",round(maxCC,3),", SD=",round(sdorig,3)," >> ",round(minSD,3)))
+  #print(paste("Stretch:",round(strch[minSDidx],3),", SD=",round(sdorig,3)," >> ",round(minSD,3)))
+  #if(sd(x)>0.5) browser() 
+  #t=c(1:length(x)); plot(x=t,y=x,t='l',col='red'); lines(x=t,y=y); lines(x=t*strch[maxsidx]+max(t)*(strch[maxsidx]-1)/2,y=y1,col='blue'); plot(x=strch,y=ccs,t='l')
+  #if(maxCC<0.0) return(list(cc=1,stretch=1,y=y))
+  #browser()
+  
+  adjusted=list(cc=ccs,sd=sdxy,stretch=strch[maxsidx],y=unlist(ccs_ys[maxsidx]))
+  return(adjusted)
+}
+
+getDT <- function (x,y, corrLim, shapeCC=1, useStretch, usePhase, nstr,smpDT=2) {
   #print(summary(x))
   #print(summary(y))
   #print(paste("getDT: ",sd(x),length(x),sd(y),length(y)))
-  ccy <- ccf(x = x,y=y,lag.max = length(x)/2,type = 'correlation',plot = F,demean = F)
+  #
+  #x=applyTaper(x)
+  #y=applyTaper(y)
+  stretchDT=1
+  if(useStretch){
+    str_y=deStretch(x,y,nstr)
+    y=str_y$y
+    stretchDT=str_y$stretch
+  }
+  if(usePhase){
+    str_ph=dePhase(x,y)
+    y=str_ph$y
+  }
+  ccy <- ccf(x = x, y = y,lag.max = length(x),type = 'correlation',plot = F,demean = F)
   ccy$lag=ccy$lag
 
   if(!is.na(shapeCC)) ccy$acf=gausswin(length(ccy$acf),shapeCC)*ccy$acf
@@ -155,8 +375,8 @@ getDT <- function (x,y, corrLim, shapeCC=1) {
   #print(summary(y))
   #print(corrLim)
   #print(ccsy)
-  if(ccsy>corrLim) dtsy=ccy$lag[which(ccy$acf==ccsy)]*2
-
+  if(ccsy>corrLim) dtsy=ccy$lag[which(ccy$acf==ccsy)]*smpDT*stretchDT
+  
   return(c(ccsy,dtsy))
 }
 
@@ -182,51 +402,43 @@ getFiltered <- function (x, freq = c(5,10)) {
   return(filtfilt(bf,x))
 }
 
-getDTvector <- function(n=100, df,tWin,useAbs,useSquared,useEnvelop, useNorm, corrLim, freq=NULL, shapeCC=1) {
-
+applyTransform <- function(x,useFilter=F,freqRange=F,useAbs=F,useSquared=F,useEnvelop=F,useNorm=F) {
+  x=applyTaper(x)
+  if(useFilter)  x<-getFiltered(x,freqRange)
+  if(useAbs)     x<-abs(x)
+  if(useSquared) x<-x**2
+  if(useEnvelop) x<-Re(spectral::envelope(x))
+  if(useNorm)    x<-(x-mean(x))/sd(x)
   
+  return (x)
+}
+
+getDTvector <- function(n=100, df,tWin,useFilter,freqRange,useAbs,useSquared,useEnvelop, useNorm, corrLim, freq=NULL, shapeCC=1, useStretch, nstr, usePhase) {
   dtsy=rep(0,n)
   ccsy=rep(0,n)
-  dtsz=rep(0,n)
-  ccsz=rep(0,n)
+  #dtsz=rep(0,n)
+  #ccsz=rep(0,n)
+  smpDT=2
   ts=rep(0,n)
   tWin=tWin/100*n
+  maxDT=diff(range(df$t))/n/2
   for(tWinLoc in c(1:n)) {
     winRange=c(round(nrow(df)*min(1,max(0,(tWinLoc-tWin/2))/n)),
                round(nrow(df)*min(1,max(0,(tWinLoc+tWin/2))/n)))
     #print(paste("winRange: ",winRange))
-    t=(winRange[1]:winRange[2])*2
-    x=df[winRange[1]:winRange[2],2]
-    y=df[winRange[1]:winRange[2],3]
-
-    if(!is.null(freq)) {
-      x=getFiltered(x,freq)
-      y=getFiltered(y,freq)
-    }
-    if(useAbs) {
-      x=abs(x)
-      y=abs(y)
-    } 
-    if(useSquared) {
-      x=x**2
-      y=y**2
-    } 
-    if(useEnvelop) {
-      x=Re(envelope(x))
-      y=Re(envelope(y))
-    } 
-    if(useNorm) {
-      x=(x-mean(x))/sd(x)
-      y=(y-mean(y))/sd(y)
-    }
+    t=(winRange[1]:winRange[2])*smpDT
+    x=applyTransform(df[winRange[1]:winRange[2],2],useFilter,freqRange,useAbs,useSquared,useEnvelop,useNorm)
+    y=applyTransform(df[winRange[1]:winRange[2],3],useFilter,freqRange,useAbs,useSquared,useEnvelop,useNorm)
+    
     #print(summary(data.frame(x,y)))
-
-    dty = getDT(x,y,corrLim,shapeCC)
+    dty = getDT(x=x,y=y,corrLim = corrLim, shapeCC = shapeCC, useStretch = useStretch,usePhase = usePhase, nstr = nstr,smpDT = smpDT)
+    dty[2]=max(min(dty[2],maxDT),-maxDT)
+    #browser()
 
     ccsy[tWinLoc]=dty[1]
     dtsy[tWinLoc]=dty[2]
 
-    ts[tWinLoc]=mean(t)
+    ts[tWinLoc]=smpDT*mean(winRange)
     
     #dtsz[tWinLoc]=ccz$lag[which(ccz$acf==ccsz[tWinLoc])]
   }
@@ -257,6 +469,7 @@ server <- function(input, output,session) {
   })
   
   output$plot <- renderPlotly({
+    #### Local Data ####
     if(input$useReal) {
       winRange=c(floor(nrow(dataSleip)*max(1,(input$tWinLoc-input$tWin/2))/100),
                  floor(nrow(dataSleip)*min(99,(input$tWinLoc+input$tWin/2))/100))
@@ -281,41 +494,37 @@ server <- function(input, output,session) {
     #print(winRange)
     df=data.frame(cbind(t=t,x=x,y=y,z=z))
     #print(summary(df))
-    df$xx=(df$x)
-    df$yy=(df$y)
-    df$zz=(df$z)
-    
-    if(input$useFilter){
-      df$xx=getFiltered(df$xx,input$freqRange)
-      df$yy=getFiltered(df$yy,input$freqRange)
-      df$zz=getFiltered(df$zz,input$freqRange)
-    }
-    if(input$useAbs) {
-      df$xx=abs(df$xx)
-      df$yy=abs(df$yy)
-      df$zz=abs(df$zz)
-    } 
-    if(input$useSquared) {
-      df$xx=df$xx**2
-      df$yy=df$yy**2
-      df$zz=df$zz**2
-    } 
-    if(input$useEnvelop) {
-      df$xx=Re(spectral::envelope(df$xx))
-      df$yy=Re(spectral::envelope(df$yy))
-      df$zz=Re(spectral::envelope(df$zz))
-    }
-    if(input$useNorm) {
-      df$xx=(df$xx-mean(df$xx))/sd(df$xx)
-      df$yy=(df$yy-mean(df$yy))/sd(df$yy)
-      df$zz=(df$zz-mean(df$zz))/sd(df$zz)
-    }
+
+    df$xx=applyTransform(df$x,input$useFilter,input$freqRange,input$useAbs,input$useSquared,input$useEnvelop,input$useNorm)
+    df$yy=applyTransform(df$y,input$useFilter,input$freqRange,input$useAbs,input$useSquared,input$useEnvelop,input$useNorm)
+    df$zz=applyTransform(df$z,input$useFilter,input$freqRange,input$useAbs,input$useSquared,input$useEnvelop,input$useNorm)
+    #### Local Calc  ####
     #print(summary(df))
     #getDTvector(t,y,y2,winRange)
-    cc <- ccf(x = df$xx,y=df$yy,lag.max = nrow(df)/2,type = 'correlation',plot = F,demean = F)
+    
+    a4syy=list()
+    a4szz=list()
+    a4pyy=list()
+    a4pzz=list()
+    
+    if(input$strtchApply){
+      a4syy=deStretch(df$xx,y=df$yy,input$stretchLags)
+      a4szz=deStretch(df$xx,y=df$zz,input$stretchLags)
+      df$yy=a4syy$y
+      df$zz=a4szz$y
+    }
+    
+    if(input$phaseApply){
+      a4pyy=dePhase(df$xx,y=df$yy)
+      a4pzz=dePhase(df$xx,y=df$zz)
+      df$yy=a4pyy$y
+      df$zz=a4pzz$y
+    }
+    
+    cc <- ccf(x = df$xx,y=df$yy,lag.max = nrow(df),type = 'correlation',plot = F,demean = F)
     cc$lag=cc$lag*2
 
-    ccz <- ccf(x = df$xx,y=df$zz,lag.max = nrow(df)/2,type = 'correlation',plot = F,demean = F)
+    ccz <- ccf(x = df$xx,y=df$zz,lag.max = nrow(df),type = 'correlation',plot = F,demean = F)
     ccz$lag=ccz$lag*2
     
     if(input$shapeCC) cc$acf=gausswin(length(cc$acf),input$shaperRange)*cc$acf
@@ -344,7 +553,8 @@ server <- function(input, output,session) {
     # 
     # title(main=paste("max CC=",c(round(digits=3,max(cc$acf)),round(digits=3,max(ccz$acf))),"@ DT=",c(dt,dtz)/2),#," ~",signif (digits = 3,100*dt/nrow(df)*2),"%"),
     #       sub=paste("DT estimation error = ", round(digits=4,100*((input$tShift-dt)/(input$tShift))),"%"))
-    
+    #### Local Plot ####
+    p4=p3=plot_ly() %>% add_text(x=0,y=0,text = 'NA')
     p1 = plot_ly(x=df$t,legendgroup = "Trace") %>% 
       layout() %>%
       add_lines(legendgroup = "traces",legendgrouptitle = list(text = "<b>Traces in window</b>"),y=df$x, color=I("gray70"), name = 'base') %>%
@@ -358,12 +568,24 @@ server <- function(input, output,session) {
       add_lines(legendgroup = "cc",legendgrouptitle = list(text = "<b>Correlation in window</b>"),y=cc$acf, color=I("red"),name = 'R mon 1') %>%
       add_lines(legendgroup = "cc",y=ccz$acf, color=I("blue"),name = 'R mon 2') %>%
       add_lines(legendgroup = "cc",y=gausswin(length(cc$acf),input$shaperRange), color=I("lightgreen"),name = 'R shaper')
-      
-    subplot(p1,p2,shareY=T,nrows = 2) %>% layout(title=title,showlegend = T,legend=list(tracegroupgap=300))
+    if(input$strtchApply) {
+    p3 = plot_ly(x=seq(stretchAdjustRange[1],stretchAdjustRange[2],length.out=length(a4syy$cc)),legendgroup = "CCstr") %>% 
+      layout(yaxis=list(range=c(-1,1))) %>%
+      add_lines(legendgroup = "CCstr",legendgrouptitle = list(text = "<b>Correlation vs stretch</b>"),y=a4syy$cc, color=I("red"),name = 'R mon 1') %>%
+      add_lines(legendgroup = "CCstr",y=a4szz$cc, color=I("blue"),name = 'R mon 2') 
+    }
+    if(input$phaseApply) {
+    p4 = plot_ly(x=dePhaseRange,legendgroup = "CCph") %>% 
+      layout(yaxis=list(range=c(-1,1))) %>%
+      add_lines(legendgroup = "CCph",legendgrouptitle = list(text = "<b>Correlation vs phase</b>"),y=a4pyy$cc, color=I("red"),name = 'R mon 1') %>%
+      add_lines(legendgroup = "CCph",y=a4pzz$cc, color=I("blue"),name = 'R mon 2') 
+    }
+    
+    subplot(p1,p2,p3,p4,shareY=T,nrows = 4) %>% layout(title=title,showlegend = T,legend=list(tracegroupgap=200))
   })
   
   output$plotDT <- renderPlotly({
-    
+    #### Glob Data ####
     if(input$useReal) {
       t=seq(1,nrow(dataSleip))*2
       x=dataSleip[,3]
@@ -400,13 +622,19 @@ server <- function(input, output,session) {
     nDT=input$nWin
     #browser()
     #print(summary(df))
+    #### Glob Calc ####
     dtsy <- getDTvector(df = df[,-4], n = nDT,
                         tWin = sdt_prc, #input$tWin,
+                        useFilter = input$useFilter,
+                        freqRange = input$freqRange,
                         useAbs = input$useAbs,
                         useSquared = input$useSquared,
                         useEnvelop = input$useEnvelop,
                         useNorm = input$useNorm,
                         corrLim = input$corrLim,
+                        useStretch = input$strtchApply,
+                        usePhase = input$phaseApply,
+                        nstr = input$stretchLags,
                         shapeCC = if(input$shapeCC) input$shaperRange else NA,
                         freq = if(input$useFilter) input$freqRange else NULL)
     if(input$prgrsvApply) {
@@ -418,11 +646,16 @@ server <- function(input, output,session) {
       #browser()
       dtsz <- getDTvector(df = df[,-3], n = nDT,
                           tWin = sdt_prc, #input$tWin,
+                          useFilter = input$useFilter,
+                          freqRange = input$freqRange,
                           useAbs = input$useAbs,
                           useSquared = input$useSquared,
                           useEnvelop = input$useEnvelop,
                           useNorm = input$useNorm,
                           corrLim = input$corrLim,
+                          useStretch = input$strtchApply,
+                          usePhase = input$phaseApply,
+                          nstr = input$stretchLags,
                           shapeCC = if(input$shapeCC) input$shaperRange else NA,
                           freq = if(input$useFilter) input$freqRange else NULL)
       dtsz$dtsy=dtsz$dtsy+dtsy$dtsy
@@ -430,11 +663,16 @@ server <- function(input, output,session) {
     } else {
       dtsz <- getDTvector(df = df[,-3], n = nDT,
                           tWin = sdt_prc, #input$tWin,
+                          useFilter = input$useFilter,
+                          freqRange = input$freqRange,
                           useAbs = input$useAbs,
                           useSquared = input$useSquared,
                           useEnvelop = input$useEnvelop,
                           useNorm = input$useNorm,
                           corrLim = input$corrLim,
+                          useStretch = input$strtchApply,
+                          usePhase = input$phaseApply,
+                          nstr = input$stretchLags,
                           shapeCC = if(input$shapeCC) input$shaperRange else NA,
                           freq = if(input$useFilter) input$freqRange else NULL)
     }
@@ -443,21 +681,48 @@ server <- function(input, output,session) {
     #browser()
     if(input$useReal) title="Sleipner_IL1840_XL1130"
     else title=paste("transform: t=t*",input$tScaler,"+",input$tShift)
+    spline_method="linear"
+    # if(input$weiDT){
+    #   shft_y = round((df$t - spline(dts$ts,dts$dtsy*dts$ccsy**2,xout = df$t,method = spline_method)$y)/2)
+    #   shft_z = round((df$t - spline(dts$ts,dts$dtsz*dts$ccsz**2,xout = df$t,method = spline_method)$y)/2)
+    # } else {
+    #   shft_y = round((df$t - spline(dts$ts,dts$dtsy,xout = df$t,method = spline_method)$y)/2)
+    #   shft_z = round((df$t - spline(dts$ts,dts$dtsz,xout = df$t,method = spline_method)$y)/2)
+    # }
+    # ddRange_y=range(shft_y,na.rm = T)
+    # ddRange_z=range(shft_z,na.rm = T)
+    # shft_y[is.na(shft_y)]=0#seq(ddRange_y[1],ddRange_y[2],nrow(df))[is.na(shft_y)]
+    # shft_z[is.na(shft_z)]=0#seq(ddRange_z[1],ddRange_z[2],nrow(df))[is.na(shft_z)]
+    # 
+    # shft_y = sapply(shft_y,FUN = function(x) {max(1,min(nrow(df),x))})
+    # shft_z = sapply(shft_z,FUN = function(x) {max(1,min(nrow(df),x))})
     
     if(input$weiDT){
-      shft_y = round((df$t - approx(dts$ts,dts$dtsy*dts$ccsy**2,xout = df$t,method = "linear")$y)/2)
-      shft_z = round((df$t - approx(dts$ts,dts$dtsz*dts$ccsz**2,xout = df$t,method = "linear")$y)/2)
-    } else {
-      shft_y = round((df$t - approx(dts$ts,dts$dtsy,xout = df$t,method = "linear")$y)/2)
-      shft_z = round((df$t - approx(dts$ts,dts$dtsz,xout = df$t,method = "linear")$y)/2)
+      dts$dtsy=dts$dtsy*dts$ccsy**2
+      dts$dtsz=dts$dtsz*dts$ccsz**2
     }
-    ddRange_y=range(shft_y,na.rm = T)
-    ddRange_z=range(shft_z,na.rm = T)
-    shft_y[is.na(shft_y)]=seq(ddRange_y[1],ddRange_y[2],nrow(df))[is.na(shft_y)]
-    shft_z[is.na(shft_z)]=seq(ddRange_z[1],ddRange_z[2],nrow(df))[is.na(shft_z)]
+    # appliedDT_yt = spline(x=dts$ts-dts$dtsy,y=dts$ts,xout = df$t,method = spline_method)$y
+    # appliedDT_zt = spline(x=dts$ts-dts$dtsz,y=dts$ts,xout = df$t,method = spline_method)$y
     
-    shft_y = sapply(shft_y,FUN = function(x) {max(1,min(nrow(df),x))})
-    shft_z = sapply(shft_z,FUN = function(x) {max(1,min(nrow(df),x))})
+    appliedDT_yt = approx(x=dts$ts-dts$dtsy,y=dts$ts,xout = df$t,method = 'linear',rule=2)$y
+    appliedDT_y = approx(x=appliedDT_yt,df$y,xout = df$t,method = spline_method)$y
+    appliedDT_zt = approx(x=dts$ts-dts$dtsz,y=dts$ts,xout = df$t,method = 'linear',rule=2)$y
+    appliedDT_z = approx(x=appliedDT_zt,df$z,xout = df$t,method = spline_method)$y
+    
+    print(paste("sd Y:",sd(appliedDT_y-df$y, na.rm = T)))
+    print(paste("sd Z:",sd(appliedDT_z-df$z, na.rm = T)))
+    # ytdiff = c(diff(appliedDT_yt),0)
+    # ytdiff[ytdiff<-20]=10
+    # ytdiff[ytdiff>20]=10
+    # appliedDT_yt = diffinv(ytdiff)[-1]+appliedDT_yt[1]
+    # 
+    # ztdiff = c(diff(appliedDT_zt),0)
+    # ztdiff[ztdiff<-20]=10
+    # ztdiff[ztdiff>20]=10
+    # appliedDT_zt = diffinv(ztdiff)[-1]+appliedDT_zt[1]
+    
+    # plot (x=dts$ts,y=dts$ts-dts$dtsz,t='l',col='blue'); lines(x=dts$ts,y=dts$ts-dts$dtsy,col='red');plot((appliedDT_zt),t='l',col='blue'); lines((appliedDT_yt),col='red')
+    # plot(x=appliedDT_zt,y=df$z, t='l',col='blue');lines(x=appliedDT_yt,y=df$y,col='red')
     #browser()
     #print(summary(cbind(shft_y,shft_z)))
     
@@ -485,6 +750,7 @@ server <- function(input, output,session) {
     # lines(x=c(0,nrow(dts)),y=c(input$corrLim,input$corrLim),col='green')
     # lines(x=rep(input$tWinLoc,2),y=c(-10,10),col='pink')
     #browser()
+    #### Glob Plot ####
     half_win = sdt_prc/100*nrow(df)
     win_pos = input$tWinLoc/100*nrow(df)*2
     #browser()
@@ -498,8 +764,10 @@ server <- function(input, output,session) {
       add_lines(legendgroup = "traces",legendgrouptitle = list(text = "<b>Traces</b>"),y=df$x-1, color=I("black"), name = 'base') %>%
       add_lines(legendgroup = "mon1",legendgrouptitle = list(text = "<b>Montor 1</b>"),y=df$y, color=I("red"),name = 'trace') %>%
       add_lines(legendgroup = "mon2",legendgrouptitle = list(text = "<b>Montor 2</b>"),y=df$z+1, color=I("blue"), name = 'trace') %>%
-      add_lines(legendgroup = "mon1",y=-1.1+df$y[shft_y], color=I("pink"), name = 'aligned') %>%
-      add_lines(legendgroup = "mon2",y=-1.2+df$z[shft_z], color=I("lightblue"), name = 'aligned') %>%
+      #add_lines(legendgroup = "mon1",y=-1.1+df$y[shft_y], color=I("pink"), name = 'aligned') %>%
+      #add_lines(legendgroup = "mon2",y=-1.2+df$z[shft_z], color=I("lightblue"), name = 'aligned') %>%
+      add_lines(legendgroup = "mon1",y=-1.1+appliedDT_y, color=I("pink"), name = 'aligned') %>%
+      add_lines(legendgroup = "mon2",y=-1.2+appliedDT_z, color=I("lightblue"), name = 'aligned') %>%
       add_lines(legendgroup = "decor",x=rep(input$tWinLoc/100*nrow(df)*2,2),y=c(-10,10),color=I('green'),name = 'Window loc.')
     p2 = plot_ly(x=dts$ts) %>% 
       layout(yaxis=list(range=c(-input$maxShift,input$maxShift)),xaxis=list(range=range(df$t))) %>%
