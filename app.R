@@ -89,7 +89,7 @@ require(plotly)
 ui <- dashboardPage(#skin = "black", 
   
   # Application title
-  dashboardHeader(title = "Flattening QC"),
+  dashboardHeader(title = "4D alignment QC"),
   
   dashboardSidebar(collapsed = F,width = 340,
       sidebarMenu( id = "tabs",#,collapsed=F,width = 12,background = 'black'), 
@@ -99,11 +99,14 @@ ui <- dashboardPage(#skin = "black",
                    materialSwitch('prgrsvApply',"Progressive alignment",right = T,value = T),
                    materialSwitch('strtchApply',"Apply de-Stretch",right = T,value = T),
                    materialSwitch('phaseApply',"Apply de-Phase",right = T,value = T),
-                   menuItem(tabName = 'cc',text = h3('Local Cross-corelation QC'), selected=T),#icon = icon('chart-line')),
+                   materialSwitch('multiFactor',"Use 3-factror analysis",right = T,value = T),
+                   menuItem(tabName = 'cc',text = h3('Local Cross-corelation QC'), selected = T),#icon = icon('chart-line')),
+                   menuItem(tabName = 'mfs',text = h3('Multi-factor Slice QC'), selected=F),#icon = icon('chart-line')),
                    menuItem(tabName = 'prm',text = h3('Parameters'), startExpanded = T,#,icon = icon('gear')
                      menuItem(tabName='prm-pr',text = h4("Display:"), startExpanded = T, 
                        sliderInput("tWinLoc",label = "Window Location, %",min = 0, max =100, step = 1,value = 50),
-                       sliderInput("maxShift",label = "Max shift displayed, ms",min = 10, max =200, step = 10,value = 100)
+                       sliderInput("maxShift",label = "Max shift displayed, ms",min = 10, max =200, step = 10,value = 100),
+                       sliderInput("sliceID",label = "Stretch-factor slice, ",min = 0.5, max =1.5, step = 0.1,value = 1)
                      ),
                      menuItem(tabName='prm-cc',text = h4("Correlation parameters:"),
                         sliderInput("tWin",label = "Window size, %",min = 5, max =50, step = 1,value = 30),
@@ -135,6 +138,9 @@ ui <- dashboardPage(#skin = "black",
     tabItems(
     tabItem(tabName = 'cc',
       plotlyOutput('plot',height = "1200")#,width = "10", height = "800")
+    ),
+    tabItem(tabName = 'mfs',
+            plotlyOutput('plotMF',height = "600")#,width = "10", height = "800")
     ),
     tabItem(tabName = 'dt',
       plotlyOutput('plotDT', height = "1200")#,width = "10", height = "800")
@@ -183,7 +189,7 @@ applyMatrixRotate <- function (data, angle) {
   return(data_out[1,])
 }
 
-applyHilbertRotate <- function(x, phase=180.) {
+applyHilbertRotate <- function(x, phaseDeg=180.) {
   #X=applyTaper(x)
   
   #print("phase")
@@ -192,15 +198,19 @@ applyHilbertRotate <- function(x, phase=180.) {
   #summary(Re(ht)-wave$a)
   #print(phase)
   
-  phase=Re(waveH)*0 + phase/180.*pi
+  phase=Re(waveH)*0 + phaseDeg/180.*pi
   #print(phase)
   #print(class(cos(phase)*Re(waveH)-sin(phase)*Im(waveH)))
   #wave$a <- wave$a - (cos(phase)*Re(waveH)-sin(phase)*Im(waveH))
-  x <-   cos(phase)*Re(waveH)-sin(phase)*Im(waveH)
+  X <-   Re(cos(phase)*Re(waveH)-sin(phase)*Im(waveH))[,1]
   #browser()
   #print(summary(wave))
-  return(Re(x)[,1])
+  #t=c(1:length(X))
+  #t=seq(-length(X)/2,length(X)/2,length.out=length(X))
+  #X=approx(x=t+(phaseDeg/10),y=X,xout = t,method = "linear",rule = 2)$y
+  return(x)
 }
+
 applyPhaseRotation <- function(x, phase=180.) {
   #X = rep(0,length(x)*2)
   #range=round(0.01+c((length(X)/4+1):round((length(X)*3/4))))
@@ -225,7 +235,7 @@ applyPhaseRotation <- function(x, phase=180.) {
   return(Re(x_ph))
 }
 
-dePhaseRange = seq(-90,90,5)
+dePhaseRange = seq(-90,90,20)
 
 dePhase <- function(x,y)  {
   lento = length(x)
@@ -348,6 +358,84 @@ deStretch <- function(x,y,nstr=11) {
   return(adjusted)
 }
 
+
+getDT3dim <- function(x,y) {
+  ccfLag=1
+  sdorig=sd(x-y,na.rm = T)
+  ccforig=ccf(x = x,y=y,lag.max = length(x)*ccfLag,type = 'correlation',plot = F,demean = F)
+  ccorig=max(ccforig$acf)
+  ccs=ccorig # fill ccs with maxCCorig
+  #if(ccorig<0.6) return(list(cc=ccs,stretch=1,y=y))
+  
+  nstr=15
+  lento = length(x)*2-1
+  strch = seq(stretchAdjustRange[1],stretchAdjustRange[2],length.out=nstr)
+  ccs=strch
+  phs = dePhaseRange
+  nphs= length(phs)
+  #browser()
+  CCnrows=nstr*nphs*lento
+  CCmatrix=data.frame(
+    st=rep(0,CCnrows),
+    ph=rep(0,CCnrows),
+    dt=rep(0,CCnrows),
+    cc=rep(0,CCnrows))
+  sdxy=strch
+  ccs_ys=list()
+  #y1=y
+  #y_spl=y#[round(lento*0.25):round(lento*0.75)]
+  
+  
+  maxCClag=ccforig$lag[which(ccorig==ccforig$acf)]
+  assym=(maxCClag/diff(range(ccforig$lag))*2)*10
+  #print(c(maxCClag,range(ccforig$lag),assym))
+  
+  #t=seq(-10+assym,10+assym,length.out=length(y))
+  t=seq(-10,10,length.out=length(y))
+  
+  #print(range(t))
+  for(ns in c(1:nstr)){
+    y1=approx(x=t/strch[ns],y=y,xout = t,method = "linear",rule = 2)$y
+    #y1=spline(x=t*strch[ns],y=y_spl,xout = t,method = "fmm")$y
+    #y1=applyTaper(y1)
+    for(np in c(1:nphs)){
+      ph=dePhaseRange[np]
+      st=strch[ns]
+      y1=applyHilbertRotate(y1,ph)
+      ccy <- ccf(x = x, y = y1, lag.max = length(x), type = 'correlation',plot = F,demean = F)
+      CCrow=(ns-1)*nphs*lento+(np-1)*lento
+      CCrange=c(CCrow:(CCrow+lento-1))+1
+      #browser()
+      CCmatrix$ph[CCrange] = rep(ph,lento)
+      CCmatrix$st[CCrange] = rep(st,lento)
+      CCmatrix$dt[CCrange] = ccy$lag
+      CCmatrix$cc[CCrange] = ccy$acf
+    }  
+    #browser()
+  }
+  maxCC=max(CCmatrix$cc)
+  maxsidx=match(maxCC,CCmatrix$cc)
+  #y1=approx(x=t/CCmatrix[maxsidx]$st,y=y,xout = t,method = "linear",rule = 2)$y
+  #y1=applyTaper(y1)
+  #y1=applyHilbertRotate(y1,CCmatrix[maxsidx]$ph)
+  #y1=approx(x=t/CCmatrix[maxsidx]$st,y=y,xout = t,method = "linear",rule = 2)$y
+  #browser()
+#  minSD=min(sdxy)
+#  minSDidx=match(minSD,sdxy)
+  resStr=paste(names(CCmatrix),round(CCmatrix[maxsidx,],3),collapse = ' ')
+  print(paste("3dim DT:",round(CCmatrix$dt[maxsidx],3),", CC=",round(ccorig,3)," >> ",round(maxCC,3),' //',resStr))
+  #print(paste("Stretch:",round(strch[minSDidx],3),", SD=",round(sdorig,3)," >> ",round(minSD,3)))
+  #if(sd(x)>0.5) browser() 
+  #t=c(1:length(x)); plot(x=t,y=x,t='l',col='red'); lines(x=t,y=y); lines(x=t*strch[maxsidx]+max(t)*(strch[maxsidx]-1)/2,y=y1,col='blue'); plot(x=strch,y=ccs,t='l')
+  #if(maxCC<0.0) return(list(cc=1,stretch=1,y=y))
+  #istr=10; CCfirst=istr*nphs*lento; CCrange=c(CCfirst:(CCfirst + nphs*lento-1))+1; im = CCmatrix[CCrange,];plot_ly(data=im) %>% add_heatmap(x=~ph,y=~dt,z=~cc) %>% layout(title = paste('Slice for stretch factor ',strch[istr+1],' max CC=',round(max(im$cc),3)))
+  #browser()
+  
+#  adjusted=list(cc=ccs,sd=sdxy,stretch=strch[maxsidx],y=unlist(ccs_ys[maxsidx]))
+  #print(paste(names(CCmatrix),CCmatrix[maxsidx,]))
+  return(list(ccs=CCmatrix,maxsidx=maxsidx))
+}
+
 getDT <- function (x,y, corrLim, shapeCC=1, useStretch, usePhase, nstr,smpDT=2) {
   #print(summary(x))
   #print(summary(y))
@@ -355,6 +443,9 @@ getDT <- function (x,y, corrLim, shapeCC=1, useStretch, usePhase, nstr,smpDT=2) 
   #
   #x=applyTaper(x)
   #y=applyTaper(y)
+  #maxCC=getDT3dim(x,y)
+  #return(c(maxCC$cc,maxCC$dt))
+  
   stretchDT=1
   if(useStretch){
     str_y=deStretch(x,y,nstr)
@@ -376,7 +467,7 @@ getDT <- function (x,y, corrLim, shapeCC=1, useStretch, usePhase, nstr,smpDT=2) 
   #print(corrLim)
   #print(ccsy)
   if(ccsy>corrLim) dtsy=ccy$lag[which(ccy$acf==ccsy)]*smpDT*stretchDT
-  
+ 
   return(c(ccsy,dtsy))
 }
 
@@ -413,7 +504,7 @@ applyTransform <- function(x,useFilter=F,freqRange=F,useAbs=F,useSquared=F,useEn
   return (x)
 }
 
-getDTvector <- function(n=100, df,tWin,useFilter,freqRange,useAbs,useSquared,useEnvelop, useNorm, corrLim, freq=NULL, shapeCC=1, useStretch, nstr, usePhase) {
+getDTvector <- function(n=100, df,tWin,useFilter,freqRange,useAbs,useSquared,useEnvelop, useNorm, corrLim, freq=NULL, shapeCC=1, useStretch, nstr, usePhase,multiFactor) {
   dtsy=rep(0,n)
   ccsy=rep(0,n)
   #dtsz=rep(0,n)
@@ -431,7 +522,12 @@ getDTvector <- function(n=100, df,tWin,useFilter,freqRange,useAbs,useSquared,use
     y=applyTransform(df[winRange[1]:winRange[2],3],useFilter,freqRange,useAbs,useSquared,useEnvelop,useNorm)
     
     #print(summary(data.frame(x,y)))
-    dty = getDT(x=x,y=y,corrLim = corrLim, shapeCC = shapeCC, useStretch = useStretch,usePhase = usePhase, nstr = nstr,smpDT = smpDT)
+    if(multiFactor) {
+      maxCC=getDT3dim(x,y)
+      maxsidx=maxCC$maxsidx
+      dty = c(maxCC$ccs$cc[maxsidx],maxCC$ccs$dt[maxsidx])
+    }
+    else dty = getDT(x=x,y=y,corrLim = corrLim, shapeCC = shapeCC, useStretch = useStretch,usePhase = usePhase, nstr = nstr,smpDT = smpDT)
     dty[2]=max(min(dty[2],maxDT),-maxDT)
     #browser()
 
@@ -583,6 +679,56 @@ server <- function(input, output,session) {
     
     subplot(p1,p2,p3,p4,shareY=T,nrows = 4) %>% layout(title=title,showlegend = T,legend=list(tracegroupgap=200))
   })
+  #### MFS Data ####
+  output$plotMF <- renderPlotly({
+    if(input$useReal) {
+      winRange=c(floor(nrow(dataSleip)*max(1,(input$tWinLoc-input$tWin/2))/100),
+                 floor(nrow(dataSleip)*min(99,(input$tWinLoc+input$tWin/2))/100))
+      #print(paste("winRange: ",winRange))
+      t=(winRange[1]:winRange[2])*2
+      x=dataSleip[winRange[1]:winRange[2],3]
+      y=dataSleip[winRange[1]:winRange[2],1]
+      z=dataSleip[winRange[1]:winRange[2],2]
+    } else {
+      winRange=c(floor(synLen*max(1,(input$tWinLoc-input$tWin/2))/100),
+                 floor(synLen*min(99,(input$tWinLoc+input$tWin/2))/100))
+      #print(paste("winRange: ",winRange))
+      trc<-rctvs$traceRC
+      subRange=(winRange[1]:winRange[2])
+      t=subRange*2
+      x=getRandomRicker(traceRC = trc,t = seq(1,synLen)*2)[subRange]
+      trc$tEvents=trc$tEvents*input$tScaler+input$tShift/1000
+      y=getRandomRicker(traceRC = trc,t = seq(1,synLen)*2)[subRange]
+      trc$tEvents=trc$tEvents*input$tScaler+input$tShift/1000
+      z=getRandomRicker(traceRC = trc,t = seq(1,synLen)*2)[subRange]
+    }
+    #print(winRange)
+    df=data.frame(cbind(t=t,x=x,y=y,z=z))
+    #print(summary(df))
+    
+    df$xx=applyTransform(df$x,input$useFilter,input$freqRange,input$useAbs,input$useSquared,input$useEnvelop,input$useNorm)
+    df$yy=applyTransform(df$y,input$useFilter,input$freqRange,input$useAbs,input$useSquared,input$useEnvelop,input$useNorm)
+    df$zz=applyTransform(df$z,input$useFilter,input$freqRange,input$useAbs,input$useSquared,input$useEnvelop,input$useNorm)
+
+    CCmatrix1 = getDT3dim(df$xx,df$yy)
+    CCmatrix2 = getDT3dim(df$xx,df$zz)
+    
+    nphs=length(dePhaseRange)
+    lento=length(df$xx)*2-1
+    strch=seq(stretchAdjustRange[1],stretchAdjustRange[2],length.out=15)
+    istr=match(min(abs(strch-input$sliceID)),abs(strch-input$sliceID))
+    CCfirst=istr*nphs*lento; 
+    print(paste("istr=",istr))
+    CCrange=c(CCfirst:(CCfirst + nphs*lento-1))+1; 
+    im1 = CCmatrix1$ccs[CCrange,];
+    im2 = CCmatrix2$ccs[CCrange,];
+    p1=plot_ly(data=im1) %>% add_heatmap(x=~ph,y=~dt,z=~cc)  
+      #layout(title = paste('Slice for stretch factor ',strch[istr+1],' max CC=',round(max(im1$cc),3)))
+    p2=plot_ly(data=im2) %>% add_heatmap(x=~ph,y=~dt,z=~cc) 
+      #layout(title = paste('Slice for stretch factor ',strch[istr+1],' max CC=',round(max(im2$cc),3)))
+    
+    subplot(p1,p2,shareY=T,nrows = 1) %>% layout(title=paste('Slice for stretch factor ',round(strch[istr+1],3),' max CC=',round(max(im2$cc),3)),showlegend = T,legend=list(tracegroupgap=200))
+  })
   
   output$plotDT <- renderPlotly({
     #### Glob Data ####
@@ -635,6 +781,7 @@ server <- function(input, output,session) {
                         useStretch = input$strtchApply,
                         usePhase = input$phaseApply,
                         nstr = input$stretchLags,
+                        multiFactor = input$multiFactor,
                         shapeCC = if(input$shapeCC) input$shaperRange else NA,
                         freq = if(input$useFilter) input$freqRange else NULL)
     if(input$prgrsvApply) {
@@ -656,6 +803,7 @@ server <- function(input, output,session) {
                           useStretch = input$strtchApply,
                           usePhase = input$phaseApply,
                           nstr = input$stretchLags,
+                          multiFactor = input$multiFactor,
                           shapeCC = if(input$shapeCC) input$shaperRange else NA,
                           freq = if(input$useFilter) input$freqRange else NULL)
       dtsz$dtsy=dtsz$dtsy+dtsy$dtsy
@@ -673,6 +821,7 @@ server <- function(input, output,session) {
                           useStretch = input$strtchApply,
                           usePhase = input$phaseApply,
                           nstr = input$stretchLags,
+                          multiFactor = input$multiFactor,
                           shapeCC = if(input$shapeCC) input$shaperRange else NA,
                           freq = if(input$useFilter) input$freqRange else NULL)
     }
