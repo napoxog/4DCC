@@ -1,6 +1,6 @@
 t= 0:1500
 ricker <- function (t=0, f=25) {
-  s=1/f
+  s=1/2/f
   return (2/sqrt(3*s)/pi^0.25*(1-(t/s)^2)*exp(-t*t/2/s/s))
 }
 #w=1
@@ -16,6 +16,7 @@ genRCtrace <- function (nEvents=10, scale=1, freq=25) {
   tFreqs=runif(n = nEvents,min = freq/2, max = freq*2)
   odf=data.frame(tEvents,tScals,tFreqs)
   print(summary(odf))
+  #browser()
   return(odf)
 }
 
@@ -30,7 +31,7 @@ getRandomRicker <- function(t=seq(1,1000), traceRC = traceRC, scale=1) {
   scals=traceRC$tScals*scale/sqrt(num)
   freqs=traceRC$tFreqs
   
-  a=sin(t/2/pi/1000)/10
+  a=sin(t/1/pi/1000)/10
   #print(summary(data.frame(tat,scals,freqs)))
   for(i in seq(1,len)) {
     #a[i]=0
@@ -85,7 +86,13 @@ require(spectral)
 require(ggplot2)
 require(gridExtra)
 require(plotly)
+require(seewave)
 #### GUI ####
+sliceTypes = c('Stretch factor'='st',
+               'Phase shift'='ph',
+               'Delta Time'='dt'
+               )
+
 ui <- dashboardPage(#skin = "black", 
   
   # Application title
@@ -93,20 +100,19 @@ ui <- dashboardPage(#skin = "black",
   
   dashboardSidebar(collapsed = F,width = 340,
       sidebarMenu( id = "tabs",#,collapsed=F,width = 12,background = 'black'), 
-                   menuItem(tabName = 'dt',text = h3('Full trace DT Analysis', .noWS="outside"), selected=F),#icon = icon('chart-area')),
-                   materialSwitch('useReal',"Use Sleipner 4D data",right = T,value = F),
-                   materialSwitch('useAutoWin',"Automatic window size",right = T,value = T),
-                   materialSwitch('prgrsvApply',"Progressive alignment",right = T,value = T),
-                   materialSwitch('strtchApply',"Apply de-Stretch",right = T,value = T),
-                   materialSwitch('phaseApply',"Apply de-Phase",right = T,value = T),
-                   materialSwitch('multiFactor',"Use 3-factror analysis",right = T,value = T),
-                   menuItem(tabName = 'cc',text = h3('Local Cross-corelation QC'), selected = T),#icon = icon('chart-line')),
+                   menuItem(tabName = 'dt',text = h3('Full trace DT Analysis', .noWS="outside"), selected=T),#icon = icon('chart-area')),
+                   materialSwitch(inputId = 'useReal',"Use Sleipner 4D data",right = T,value = F),
+                   materialSwitch(inputId = 'useAutoWin',"Automatic window size",right = T,value = F),
+                   materialSwitch(inputId = 'prgrsvApply',"Progressive alignment",right = T,value = T),
+                   materialSwitch(inputId = 'strtchApply',"Apply de-Stretch",right = T,value = T),
+                   materialSwitch(inputId = 'phaseApply',"Apply de-Phase",right = T,value = T),
+                   materialSwitch(inputId = 'multiFactor',"Use 3-factror analysis",right = T,value = F),
+                   menuItem(tabName = 'cc',text = h3('Local Cross-corelation QC'), selected = F),#icon = icon('chart-line')),
                    menuItem(tabName = 'mfs',text = h3('Multi-factor Slice QC'), selected=F),#icon = icon('chart-line')),
                    menuItem(tabName = 'prm',text = h3('Parameters'), startExpanded = T,#,icon = icon('gear')
                      menuItem(tabName='prm-pr',text = h4("Display:"), startExpanded = T, 
                        sliderInput("tWinLoc",label = "Window Location, %",min = 0, max =100, step = 1,value = 50),
-                       sliderInput("maxShift",label = "Max shift displayed, ms",min = 10, max =200, step = 10,value = 100),
-                       sliderInput("sliceID",label = "Stretch-factor slice, ",min = 0.5, max =1.5, step = 0.1,value = 1)
+                       sliderInput("maxShift",label = "Max shift displayed, ms",min = 10, max =200, step = 10,value = 100)
                      ),
                      menuItem(tabName='prm-cc',text = h4("Correlation parameters:"),
                         sliderInput("tWin",label = "Window size, %",min = 5, max =50, step = 1,value = 30),
@@ -140,7 +146,9 @@ ui <- dashboardPage(#skin = "black",
       plotlyOutput('plot',height = "1200")#,width = "10", height = "800")
     ),
     tabItem(tabName = 'mfs',
-            plotlyOutput('plotMF',height = "600")#,width = "10", height = "800")
+            selectInput(inputId = "sliceType", label = 'Select slice type:',choices = sliceTypes),
+            sliderInput(inputId = "sliceID",label = "Stretch-factor slice, ",min = 0.5, max =1.5, step = 0.1,value = 1),
+            plotlyOutput(outputId = 'plotMF',height = "600")#,width = "10", height = "800")
     ),
     tabItem(tabName = 'dt',
       plotlyOutput('plotDT', height = "1200")#,width = "10", height = "800")
@@ -202,13 +210,13 @@ applyHilbertRotate <- function(x, phaseDeg=180.) {
   #print(phase)
   #print(class(cos(phase)*Re(waveH)-sin(phase)*Im(waveH)))
   #wave$a <- wave$a - (cos(phase)*Re(waveH)-sin(phase)*Im(waveH))
-  X <-   Re(cos(phase)*Re(waveH)-sin(phase)*Im(waveH))[,1]
+  x_out <-   Re(cos(phase)*Re(waveH)-sin(phase)*Im(waveH))[,1]
   #browser()
   #print(summary(wave))
-  #t=c(1:length(X))
-  #t=seq(-length(X)/2,length(X)/2,length.out=length(X))
-  #X=approx(x=t+(phaseDeg/10),y=X,xout = t,method = "linear",rule = 2)$y
-  return(x)
+  #t=c(1:length(x_out))
+  t=seq(-length(x_out)/2,length(x_out)/2,length.out=length(x_out))
+  x_out=approx(x=t-(phaseDeg/10),y=x_out,xout = t,method = "linear",rule = 2)$y
+  return(x_out)
 }
 
 applyPhaseRotation <- function(x, phase=180.) {
@@ -235,7 +243,7 @@ applyPhaseRotation <- function(x, phase=180.) {
   return(Re(x_ph))
 }
 
-dePhaseRange = seq(-90,90,20)
+dePhaseRange = seq(-90,90,10)
 
 dePhase <- function(x,y)  {
   lento = length(x)
@@ -287,7 +295,7 @@ dePhase <- function(x,y)  {
   minSD=min(sdxy)
   minSDidx=match(minSD,sdxy)
   
-  print(paste("Phase:",round(strch[maxsidx],3),", CC=",round(ccorig,3)," >> ",round(maxCC,3),", SD=",round(sdorig,3)," >> ",round(minSD,3)))
+  print(paste("dePhase:",sprintf("%7.3f",strch[maxsidx]),", CC=",sprintf("%7.3f",ccorig)," >> ",sprintf("%7.3f",maxCC),", SD=",sprintf("%7.3f",sdorig)," >> ",sprintf("%7.3f",minSD)))
   #if(sd(x)>0.5) browser() 
   #t=c(1:length(x)); plot(x=t,y=x,t='l',col='red'); lines(x=t,y=y); lines(x=t*strch[maxsidx]+max(t)*(strch[maxsidx]-1)/2,y=y1,col='blue'); plot(x=strch,y=ccs,t='l')
   #if(maxCC<0.0) return(list(cc=1,stretch=1,y=y))
@@ -347,7 +355,7 @@ deStretch <- function(x,y,nstr=11) {
   minSD=min(sdxy)
   minSDidx=match(minSD,sdxy)
 
-  print(paste("Stretch:",round(strch[maxsidx],3),", CC=",round(ccorig,3)," >> ",round(maxCC,3),", SD=",round(sdorig,3)," >> ",round(minSD,3)))
+  print(paste("Stretch:",sprintf("%7.3f",strch[maxsidx]),", CC=",sprintf("%7.3f",ccorig)," >> ",sprintf("%7.3f",maxCC),", SD=",sprintf("%7.3f",sdorig)," >> ",sprintf("%7.3f",minSD)))
   #print(paste("Stretch:",round(strch[minSDidx],3),", SD=",round(sdorig,3)," >> ",round(minSD,3)))
   #if(sd(x)>0.5) browser() 
   #t=c(1:length(x)); plot(x=t,y=x,t='l',col='red'); lines(x=t,y=y); lines(x=t*strch[maxsidx]+max(t)*(strch[maxsidx]-1)/2,y=y1,col='blue'); plot(x=strch,y=ccs,t='l')
@@ -359,7 +367,7 @@ deStretch <- function(x,y,nstr=11) {
 }
 
 
-getDT3dim <- function(x,y) {
+getDT3dim <- function(x,y,shapeCC=3) {
   ccfLag=1
   sdorig=sd(x-y,na.rm = T)
   ccforig=ccf(x = x,y=y,lag.max = length(x)*ccfLag,type = 'correlation',plot = F,demean = F)
@@ -367,9 +375,9 @@ getDT3dim <- function(x,y) {
   ccs=ccorig # fill ccs with maxCCorig
   #if(ccorig<0.6) return(list(cc=ccs,stretch=1,y=y))
   
-  nstr=15
+  nstr=21
   lento = length(x)*2-1
-  strch = seq(stretchAdjustRange[1],stretchAdjustRange[2],length.out=nstr)
+  strch = round(seq(stretchAdjustRange[1],stretchAdjustRange[2],length.out=nstr),3)
   ccs=strch
   phs = dePhaseRange
   nphs= length(phs)
@@ -390,26 +398,29 @@ getDT3dim <- function(x,y) {
   assym=(maxCClag/diff(range(ccforig$lag))*2)*10
   #print(c(maxCClag,range(ccforig$lag),assym))
   
-  #t=seq(-10+assym,10+assym,length.out=length(y))
-  t=seq(-10,10,length.out=length(y))
+  t=seq(-10+assym,10+assym,length.out=length(y))
+  #t=seq(-length(y)/2,length(y)/2,length.out=length(y))
+  #t=seq(0,1000,length.out=length(y))
   
   #print(range(t))
   for(ns in c(1:nstr)){
-    y1=approx(x=t/strch[ns],y=y,xout = t,method = "linear",rule = 2)$y
-    #y1=spline(x=t*strch[ns],y=y_spl,xout = t,method = "fmm")$y
-    #y1=applyTaper(y1)
+    st=strch[ns]
+    strep=rep(st,lento)
+    y1=approx(x=t/st,y=y,xout = t,method = "linear",rule = 2)$y
+    #y1=spline(x=t/st,y=y,xout = t,method = "fmm")$y
+    y1st=applyTaper(y1)
     for(np in c(1:nphs)){
       ph=dePhaseRange[np]
-      st=strch[ns]
-      y1=applyHilbertRotate(y1,ph)
-      ccy <- ccf(x = x, y = y1, lag.max = length(x), type = 'correlation',plot = F,demean = F)
+      y1ph=applyHilbertRotate(y1st,ph)
+      ccy <- ccf(x = x, y = y1ph, lag.max = length(x), type = 'correlation',plot = F,demean = F)
+      if(!is.na(shapeCC)) ccy$acf=gausswin(length(ccy$acf),shapeCC)*ccy$acf
       CCrow=(ns-1)*nphs*lento+(np-1)*lento
       CCrange=c(CCrow:(CCrow+lento-1))+1
-      #browser()
+      CCmatrix$st[CCrange] = strep
       CCmatrix$ph[CCrange] = rep(ph,lento)
-      CCmatrix$st[CCrange] = rep(st,lento)
-      CCmatrix$dt[CCrange] = ccy$lag
+      CCmatrix$dt[CCrange] = ccy$lag*2
       CCmatrix$cc[CCrange] = ccy$acf
+      #browser()
     }  
     #browser()
   }
@@ -422,8 +433,8 @@ getDT3dim <- function(x,y) {
   #browser()
 #  minSD=min(sdxy)
 #  minSDidx=match(minSD,sdxy)
-  resStr=paste(names(CCmatrix),round(CCmatrix[maxsidx,],3),collapse = ' ')
-  print(paste("3dim DT:",round(CCmatrix$dt[maxsidx],3),", CC=",round(ccorig,3)," >> ",round(maxCC,3),' //',resStr))
+  resStr=paste(names(CCmatrix),sprintf("%7.3f",CCmatrix[maxsidx,]),collapse = ' ')
+  print(paste("3dim DT:",sprintf("%7.3f",CCmatrix$dt[maxsidx]),", CC=",sprintf("%7.3f",ccorig)," >> ",sprintf("%7.3f",maxCC),' //',resStr))
   #print(paste("Stretch:",round(strch[minSDidx],3),", SD=",round(sdorig,3)," >> ",round(minSD,3)))
   #if(sd(x)>0.5) browser() 
   #t=c(1:length(x)); plot(x=t,y=x,t='l',col='red'); lines(x=t,y=y); lines(x=t*strch[maxsidx]+max(t)*(strch[maxsidx]-1)/2,y=y1,col='blue'); plot(x=strch,y=ccs,t='l')
@@ -445,30 +456,34 @@ getDT <- function (x,y, corrLim, shapeCC=1, useStretch, usePhase, nstr,smpDT=2) 
   #y=applyTaper(y)
   #maxCC=getDT3dim(x,y)
   #return(c(maxCC$cc,maxCC$dt))
-  
+  stsy=0
+  phsy=0
   stretchDT=1
   if(useStretch){
     str_y=deStretch(x,y,nstr)
     y=str_y$y
     stretchDT=str_y$stretch
+    stsy=stretchDT
   }
   if(usePhase){
     str_ph=dePhase(x,y)
     y=str_ph$y
+    phsy=str_ph$stretch
   }
   ccy <- ccf(x = x, y = y,lag.max = length(x),type = 'correlation',plot = F,demean = F)
-  ccy$lag=ccy$lag
+  #ccy$lag=ccy$lag
 
   if(!is.na(shapeCC)) ccy$acf=gausswin(length(ccy$acf),shapeCC)*ccy$acf
   ccsy=max(ccy$acf)
-  dtsy=0
+  
   #print(summary(x))
   #print(summary(y))
   #print(corrLim)
   #print(ccsy)
   if(ccsy>corrLim) dtsy=ccy$lag[which(ccy$acf==ccsy)]*smpDT*stretchDT
- 
-  return(c(ccsy,dtsy))
+  else  dtsy=0
+  
+  return(c(ccsy,dtsy,stsy,phsy))
 }
 
 getDTSS <- function (x,y, corrLim) {
@@ -507,6 +522,8 @@ applyTransform <- function(x,useFilter=F,freqRange=F,useAbs=F,useSquared=F,useEn
 getDTvector <- function(n=100, df,tWin,useFilter,freqRange,useAbs,useSquared,useEnvelop, useNorm, corrLim, freq=NULL, shapeCC=1, useStretch, nstr, usePhase,multiFactor) {
   dtsy=rep(0,n)
   ccsy=rep(0,n)
+  stsy=rep(0,n)
+  phsy=rep(0,n)
   #dtsz=rep(0,n)
   #ccsz=rep(0,n)
   smpDT=2
@@ -522,23 +539,28 @@ getDTvector <- function(n=100, df,tWin,useFilter,freqRange,useAbs,useSquared,use
     y=applyTransform(df[winRange[1]:winRange[2],3],useFilter,freqRange,useAbs,useSquared,useEnvelop,useNorm)
     
     #print(summary(data.frame(x,y)))
+    st=0
     if(multiFactor) {
-      maxCC=getDT3dim(x,y)
+      maxCC=getDT3dim(x,y,shapeCC)
       maxsidx=maxCC$maxsidx
-      dty = c(maxCC$ccs$cc[maxsidx],maxCC$ccs$dt[maxsidx])
+      dty = c(maxCC$ccs$cc[maxsidx],maxCC$ccs$dt[maxsidx],maxCC$ccs$st[maxsidx],maxCC$ccs$ph[maxsidx])
+      #print(paste('getDTvector ',dty))
     }
     else dty = getDT(x=x,y=y,corrLim = corrLim, shapeCC = shapeCC, useStretch = useStretch,usePhase = usePhase, nstr = nstr,smpDT = smpDT)
-    dty[2]=max(min(dty[2],maxDT),-maxDT)
+    dty[2]=max(min(dty[2],maxDT*2),-maxDT*2)
     #browser()
 
     ccsy[tWinLoc]=dty[1]
     dtsy[tWinLoc]=dty[2]
+    stsy[tWinLoc]=dty[3]
+    phsy[tWinLoc]=dty[4]
 
     ts[tWinLoc]=smpDT*mean(winRange)
     
     #dtsz[tWinLoc]=ccz$lag[which(ccz$acf==ccsz[tWinLoc])]
   }
-  return(data.frame(cbind(ts,ccsy,dtsy)))
+  #browser()
+  return(data.frame(cbind(ts,ccsy,dtsy,stsy,phsy)))
 }
 
 #getDTvector(dataSleip,5)
@@ -546,13 +568,71 @@ getDTvector <- function(n=100, df,tWin,useFilter,freqRange,useAbs,useSquared,use
 #return()
 synLen=1000
 
-rctvs <- reactiveValues(traceRC = traceRC)
-  
-server <- function(input, output,session) {
-  #browser()
-  observeEvent(input$nEvent, { rctvs$traceRC <- genRCtrace (nEvents = input$nEvent,freq = input$tFreq)})
-  observeEvent(input$tFreq,  { rctvs$traceRC <- genRCtrace (nEvents = input$nEvent,freq = input$tFreq)})
+rctvs_global <- reactiveValues()#traceRC = traceRC)
+rctvs_local <- reactiveValues()#traceRC = traceRC)
+rctvs_mfs <- reactiveValues()#traceRC = traceRC)
+options(shiny.reactlog=TRUE) 
 
+server <- function(input, output,session) {
+  
+  observeEvent(list(
+    input$useReal,
+    input$nEvent,
+    input$tFreq,
+    input$tScaler,
+    input$tShift,
+    input$useAutoWin,
+    input$tWin),{
+    #### Glob Data ####
+    traceRC <- genRCtrace (nEvents = input$nEvent,freq = input$tFreq)
+    if(input$useReal) {
+      title="Sleipner_IL1840_XL1130"
+      
+      t=seq(1,nrow(dataSleip))*2
+      x=dataSleip[,3]
+      y=dataSleip[,1]
+      z=dataSleip[,2]
+    } else {
+      title=paste("transform: t=t*",input$tScaler,"+",input$tShift)
+      
+      t=seq(1,synLen)*2
+      trc<-traceRC
+      x=getRandomRicker(traceRC = trc,t = t)
+      trc$tEvents=trc$tEvents*input$tScaler+input$tShift/1000
+      y=getRandomRicker(traceRC = trc,t = t)
+      trc$tEvents=trc$tEvents*input$tScaler+input$tShift/1000
+      z=getRandomRicker(traceRC = trc,t = t)
+    }
+    #print(winRange)
+    df=data.frame(cbind(t=t,x=x,y=y,z=z))
+    #print("call to genRCtrace")
+    rctvs_global$traceRC <- traceRC
+    rctvs_global$df <- df
+    spec=spec.fft(df$x,df$t/1000/pi)
+    medfreq=median(spec$fx[spec$fx>0][amax(spec$PSD[spec$fx>0 & spec$PSD>mean(spec$PSD)])])-
+      sd(spec$fx[spec$fx>0][amax(spec$PSD[spec$fx>0 & spec$PSD>mean(spec$PSD)])])
+    print(paste("med freq, Hz = ",medfreq))
+    if(input$useAutoWin) {
+      print(paste("med freq, Hz = ",medfreq))
+      t=seq(-10,10, length.out=1000)
+      s=ricker(t=t,f = medfreq)
+      sdt=max(20,min(500,diff(range(t[abs(s)>1e-3]))*1000))
+      sdt=max(20,min(500,4000/medfreq))
+      sdt_prc=round(100*sdt/diff(range(df$t)))
+      updateSliderInput(session = session,"tWin",value = sdt_prc)
+    } else {
+      sdt_prc=input$tWin
+      sdt=input$tWin*diff(range(df$t))/100
+    }
+    print(paste("win estimate/size, ms = ",sdt," (", sdt_prc, "%)"))
+    
+    rctvs_global$medfreq <- medfreq
+    rctvs_global$sdt_prc <- sdt_prc
+    rctvs_global$title <- title
+    
+    
+  })
+  
   observe({
   print("strated new session...")
   print(paste0(
@@ -564,39 +644,51 @@ server <- function(input, output,session) {
   ))
   })
   
-  output$plot <- renderPlotly({
-    #### Local Data ####
-    if(input$useReal) {
-      winRange=c(floor(nrow(dataSleip)*max(1,(input$tWinLoc-input$tWin/2))/100),
-                 floor(nrow(dataSleip)*min(99,(input$tWinLoc+input$tWin/2))/100))
-      #print(paste("winRange: ",winRange))
-      t=(winRange[1]:winRange[2])*2
-      x=dataSleip[winRange[1]:winRange[2],3]
-      y=dataSleip[winRange[1]:winRange[2],1]
-      z=dataSleip[winRange[1]:winRange[2],2]
-    } else {
-      winRange=c(floor(synLen*max(1,(input$tWinLoc-input$tWin/2))/100),
-                     floor(synLen*min(99,(input$tWinLoc+input$tWin/2))/100))
-      #print(paste("winRange: ",winRange))
-      trc<-rctvs$traceRC
-      subRange=(winRange[1]:winRange[2])
-      t=subRange*2
-      x=getRandomRicker(traceRC = trc,t = seq(1,synLen)*2)[subRange]
-      trc$tEvents=trc$tEvents*input$tScaler+input$tShift/1000
-      y=getRandomRicker(traceRC = trc,t = seq(1,synLen)*2)[subRange]
-      trc$tEvents=trc$tEvents*input$tScaler+input$tShift/1000
-      z=getRandomRicker(traceRC = trc,t = seq(1,synLen)*2)[subRange]
-    }
+  #### Local Data ####
+  observeEvent(list(rctvs_global$df,
+                    input$tWinLoc,
+                    input$tWin,
+                    input$useFilter,
+                    input$freqRange,
+                    input$useAbs,
+                    input$useSquared,
+                    input$useEnvelop,
+                    input$useNorm,
+                    input$stretchLags,
+                    input$shapeCC,
+                    input$shaperRange
+                    ),{
+    df <- rctvs_global$df
+    medfreq <- rctvs_global$medfreq
+    sdt_prc <- rctvs_global$sdt_prc
+    
+    winRange=c(floor(nrow(df)*max(1,(input$tWinLoc-input$tWin/2))/100),
+               floor(nrow(df)*min(99,(input$tWinLoc+input$tWin/2))/100))
+    subRange=(winRange[1]:winRange[2])
+    t=subRange*2
+    x=df$x[subRange]
+    y=df$y[subRange]
+    z=df$z[subRange]
+    subRange=(winRange[1]:winRange[2])
+    t=subRange*2
+    x=df$x[subRange]
+    y=df$y[subRange]
+    z=df$z[subRange]
     #print(winRange)
     df=data.frame(cbind(t=t,x=x,y=y,z=z))
     #print(summary(df))
-
     df$xx=applyTransform(df$x,input$useFilter,input$freqRange,input$useAbs,input$useSquared,input$useEnvelop,input$useNorm)
     df$yy=applyTransform(df$y,input$useFilter,input$freqRange,input$useAbs,input$useSquared,input$useEnvelop,input$useNorm)
     df$zz=applyTransform(df$z,input$useFilter,input$freqRange,input$useAbs,input$useSquared,input$useEnvelop,input$useNorm)
-    #### Local Calc  ####
+    
+    rctvs_local$df <- df
+    
+    title <- rctvs_global$title
+    
+    #### Local Calc ####
     #print(summary(df))
     #getDTvector(t,y,y2,winRange)
+    
     
     a4syy=list()
     a4szz=list()
@@ -619,15 +711,12 @@ server <- function(input, output,session) {
     
     cc <- ccf(x = df$xx,y=df$yy,lag.max = nrow(df),type = 'correlation',plot = F,demean = F)
     cc$lag=cc$lag*2
-
+    
     ccz <- ccf(x = df$xx,y=df$zz,lag.max = nrow(df),type = 'correlation',plot = F,demean = F)
     ccz$lag=ccz$lag*2
     
     if(input$shapeCC) cc$acf=gausswin(length(cc$acf),input$shaperRange)*cc$acf
     if(input$shapeCC) ccz$acf=gausswin(length(ccz$acf),input$shaperRange)*ccz$acf
-    
-    if(input$useReal) title="Sleipner_IL1840_XL1130"
-    else title=paste("transform: t=t*",input$tScaler,"+",input$tShift)
     
     dt=cc$lag[which(cc$acf==max(cc$acf))]
     dtz=ccz$lag[which(ccz$acf==max(ccz$acf))]
@@ -649,7 +738,27 @@ server <- function(input, output,session) {
     # 
     # title(main=paste("max CC=",c(round(digits=3,max(cc$acf)),round(digits=3,max(ccz$acf))),"@ DT=",c(dt,dtz)/2),#," ~",signif (digits = 3,100*dt/nrow(df)*2),"%"),
     #       sub=paste("DT estimation error = ", round(digits=4,100*((input$tShift-dt)/(input$tShift))),"%"))
+    rctvs_local$cc <- cc
+    rctvs_local$ccz <- ccz
+    rctvs_local$a4syy <- a4syy
+    rctvs_local$a4szz <- a4szz
+    rctvs_local$a4pyy <- a4pyy
+    rctvs_local$a4pzz <- a4pzz
+    
+    
+  })
+  
+  output$plot <- renderPlotly({
+    #return(NULL)
     #### Local Plot ####
+    df <- rctvs_local$df
+    cc <- rctvs_local$cc
+    ccz <- rctvs_local$ccz
+    a4syy <- rctvs_local$a4syy
+    a4szz <- rctvs_local$a4szz
+    a4pyy <- rctvs_local$a4pyy
+    a4pzz <- rctvs_local$a4pzz
+    
     p4=p3=plot_ly() %>% add_text(x=0,y=0,text = 'NA')
     p1 = plot_ly(x=df$t,legendgroup = "Trace") %>% 
       layout() %>%
@@ -679,96 +788,35 @@ server <- function(input, output,session) {
     
     subplot(p1,p2,p3,p4,shareY=T,nrows = 4) %>% layout(title=title,showlegend = T,legend=list(tracegroupgap=200))
   })
-  #### MFS Data ####
-  output$plotMF <- renderPlotly({
-    if(input$useReal) {
-      winRange=c(floor(nrow(dataSleip)*max(1,(input$tWinLoc-input$tWin/2))/100),
-                 floor(nrow(dataSleip)*min(99,(input$tWinLoc+input$tWin/2))/100))
-      #print(paste("winRange: ",winRange))
-      t=(winRange[1]:winRange[2])*2
-      x=dataSleip[winRange[1]:winRange[2],3]
-      y=dataSleip[winRange[1]:winRange[2],1]
-      z=dataSleip[winRange[1]:winRange[2],2]
-    } else {
-      winRange=c(floor(synLen*max(1,(input$tWinLoc-input$tWin/2))/100),
-                 floor(synLen*min(99,(input$tWinLoc+input$tWin/2))/100))
-      #print(paste("winRange: ",winRange))
-      trc<-rctvs$traceRC
-      subRange=(winRange[1]:winRange[2])
-      t=subRange*2
-      x=getRandomRicker(traceRC = trc,t = seq(1,synLen)*2)[subRange]
-      trc$tEvents=trc$tEvents*input$tScaler+input$tShift/1000
-      y=getRandomRicker(traceRC = trc,t = seq(1,synLen)*2)[subRange]
-      trc$tEvents=trc$tEvents*input$tScaler+input$tShift/1000
-      z=getRandomRicker(traceRC = trc,t = seq(1,synLen)*2)[subRange]
-    }
-    #print(winRange)
-    df=data.frame(cbind(t=t,x=x,y=y,z=z))
-    #print(summary(df))
-    
-    df$xx=applyTransform(df$x,input$useFilter,input$freqRange,input$useAbs,input$useSquared,input$useEnvelop,input$useNorm)
-    df$yy=applyTransform(df$y,input$useFilter,input$freqRange,input$useAbs,input$useSquared,input$useEnvelop,input$useNorm)
-    df$zz=applyTransform(df$z,input$useFilter,input$freqRange,input$useAbs,input$useSquared,input$useEnvelop,input$useNorm)
-
-    CCmatrix1 = getDT3dim(df$xx,df$yy)
-    CCmatrix2 = getDT3dim(df$xx,df$zz)
-    
-    nphs=length(dePhaseRange)
-    lento=length(df$xx)*2-1
-    strch=seq(stretchAdjustRange[1],stretchAdjustRange[2],length.out=15)
-    istr=match(min(abs(strch-input$sliceID)),abs(strch-input$sliceID))
-    CCfirst=istr*nphs*lento; 
-    print(paste("istr=",istr))
-    CCrange=c(CCfirst:(CCfirst + nphs*lento-1))+1; 
-    im1 = CCmatrix1$ccs[CCrange,];
-    im2 = CCmatrix2$ccs[CCrange,];
-    p1=plot_ly(data=im1) %>% add_heatmap(x=~ph,y=~dt,z=~cc)  
-      #layout(title = paste('Slice for stretch factor ',strch[istr+1],' max CC=',round(max(im1$cc),3)))
-    p2=plot_ly(data=im2) %>% add_heatmap(x=~ph,y=~dt,z=~cc) 
-      #layout(title = paste('Slice for stretch factor ',strch[istr+1],' max CC=',round(max(im2$cc),3)))
-    
-    subplot(p1,p2,shareY=T,nrows = 1) %>% layout(title=paste('Slice for stretch factor ',round(strch[istr+1],3),' max CC=',round(max(im2$cc),3)),showlegend = T,legend=list(tracegroupgap=200))
-  })
   
-  output$plotDT <- renderPlotly({
-    #### Glob Data ####
-    if(input$useReal) {
-      t=seq(1,nrow(dataSleip))*2
-      x=dataSleip[,3]
-      y=dataSleip[,1]
-      z=dataSleip[,2]
-    } else {
-      t=seq(1,synLen)*2
-      trc<-rctvs$traceRC
-      x=getRandomRicker(traceRC = trc,t = t)
-      trc$tEvents=trc$tEvents*input$tScaler+input$tShift/1000
-      y=getRandomRicker(traceRC = trc,t = t)
-      trc$tEvents=trc$tEvents*input$tScaler+input$tShift/1000
-      z=getRandomRicker(traceRC = trc,t = t)
-    }
-    #print(winRange)
-    df=data.frame(cbind(t=t,x=x,y=y,z=z))
+  observeEvent(eventExpr = list(
+    #rctvs_global$sdt_prc,
+    rctvs_global$df,
+    input$useFilter,
+    input$freqRange,
+    input$useAbs,
+    input$useSquared,
+    input$useEnvelop,
+    input$useNorm,
+    input$corrLim,
+    input$prgrsvApply,
+    input$strtchApply,
+    input$phaseApply,
+    input$stretchLags,
+    input$multiFactor,
+    input$shapeCC,
+    input$shaperRange,
+    input$nWin
+  ),ignoreInit = F,handlerExpr = {
     
-    spec=spec.fft(df$x,df$t/1000/pi)
-    medfreq=median(spec$fx[spec$fx>0][amax(spec$PSD[spec$fx>0 & spec$PSD>mean(spec$PSD)])])-
-      sd(spec$fx[spec$fx>0][amax(spec$PSD[spec$fx>0 & spec$PSD>mean(spec$PSD)])])
-    print(paste("med freq, Hz = ",medfreq))
-    if(input$useAutoWin) {
-      t=seq(-10,10, length.out=1000)
-      s=ricker(t=t,f = medfreq)
-      sdt=max(20,min(500,diff(range(t[abs(s)>1e-3]))*1000))
-      sdt=max(20,min(500,4000/medfreq))
-      sdt_prc=round(100*sdt/diff(range(df$t)))
-      updateSliderInput(session = session,"tWin",value = sdt_prc)
-    } else {
-      sdt_prc=input$tWin
-      sdt=input$tWin*diff(range(df$t))/100
-    }
-    print(paste("win estimate, ms = ",sdt," (", sdt_prc, "%)"))
+    #### Glob Calc ####
+    df <- rctvs_global$df 
+    sdt_prc <- rctvs_global$sdt_prc
+    
     nDT=input$nWin
     #browser()
     #print(summary(df))
-    #### Glob Calc ####
+    
     dtsy <- getDTvector(df = df[,-4], n = nDT,
                         tWin = sdt_prc, #input$tWin,
                         useFilter = input$useFilter,
@@ -785,6 +833,7 @@ server <- function(input, output,session) {
                         shapeCC = if(input$shapeCC) input$shaperRange else NA,
                         freq = if(input$useFilter) input$freqRange else NULL)
     if(input$prgrsvApply) {
+      #browser()
       q=df$z
       shft_y = round((df$t - approx(dtsy$ts,dtsy$dtsy,xout = df$t,method = "linear")$y)/2)
       dt_range=range(shft_y,na.rm = T)
@@ -825,11 +874,43 @@ server <- function(input, output,session) {
                           shapeCC = if(input$shapeCC) input$shaperRange else NA,
                           freq = if(input$useFilter) input$freqRange else NULL)
     }
-    colnames(dtsz) <- c('ts', 'ccsz','dtsz')
+    colnames(dtsz) <- c('ts', 'ccsz','dtsz','stsz','phsz')
     dts=cbind(dtsy,dtsz[,-1])
+    
+    if(input$weiDT){
+      dts$dtsy=dts$dtsy*dts$ccsy**2
+      dts$dtsz=dts$dtsz*dts$ccsz**2
+    }
+    
     #browser()
-    if(input$useReal) title="Sleipner_IL1840_XL1130"
-    else title=paste("transform: t=t*",input$tScaler,"+",input$tShift)
+    rctvs_global$dts <- dts
+    #rctvs_global$df <- df
+    #rctvs_global$sdt_prc <- sdt_prc
+  })
+  
+  
+  output$plotDT <- renderPlotly({
+    #return(NULL)
+    dts <- rctvs_global$dts
+    df <- rctvs_global$df
+    sdt_prc <- rctvs_global$sdt_prc
+    #sdt_prc <- rctvs_global$sdt_prc
+    title <- rctvs_global$title
+
+    # if(input$useAutoWin) {
+    #   medfreq <- rctvs_global$medfreq
+    #   t=seq(-10,10, length.out=1000)
+    #   s=ricker(t=t,f = medfreq)
+    #   sdt=max(20,min(500,diff(range(t[abs(s)>1e-3]))*1000))
+    #   sdt=max(20,min(500,4000/medfreq))
+    #   sdt_prc=round(100*sdt/diff(range(df$t)))
+    #   updateSliderInput(session = session,"tWin",value = sdt_prc)
+    # } else {
+    #   sdt_prc=input$tWin
+    #   sdt=input$tWin*diff(range(df$t))/100
+    # }
+    
+    #browser()
     spline_method="linear"
     # if(input$weiDT){
     #   shft_y = round((df$t - spline(dts$ts,dts$dtsy*dts$ccsy**2,xout = df$t,method = spline_method)$y)/2)
@@ -846,10 +927,6 @@ server <- function(input, output,session) {
     # shft_y = sapply(shft_y,FUN = function(x) {max(1,min(nrow(df),x))})
     # shft_z = sapply(shft_z,FUN = function(x) {max(1,min(nrow(df),x))})
     
-    if(input$weiDT){
-      dts$dtsy=dts$dtsy*dts$ccsy**2
-      dts$dtsz=dts$dtsz*dts$ccsz**2
-    }
     # appliedDT_yt = spline(x=dts$ts-dts$dtsy,y=dts$ts,xout = df$t,method = spline_method)$y
     # appliedDT_zt = spline(x=dts$ts-dts$dtsz,y=dts$ts,xout = df$t,method = spline_method)$y
     
@@ -924,17 +1001,21 @@ server <- function(input, output,session) {
                    x=winBox$x,y=(winBox$y-0.5)*input$maxShift*2,name="Processing window", color=I("lightgreen")) %>%
       add_lines(legendgroup = "mon1",y=dts$dtsy, color=I("red"),name = 'Delta T') %>%
       add_lines(legendgroup = "mon2",y=dts$dtsz, color=I("blue"),name = 'Delta T') %>%
-      add_lines(legendgroup = "mon1",y=dts$dtsy*dts$ccsy**2, color=I("pink"),name = 'Delta T * R<sup>2') %>%
-      add_lines(legendgroup = "mon2",y=dts$dtsz*dts$ccsz**2, color=I("lightblue"),name = 'Delta T * R<sup>2') %>%
+      #add_lines(legendgroup = "mon1",y=dts$dtsy*dts$ccsy**2, color=I("pink"),name = 'Delta T * R<sup>2') %>%
+      #add_lines(legendgroup = "mon2",y=dts$dtsz*dts$ccsz**2, color=I("lightblue"),name = 'Delta T * R<sup>2') %>%
+      add_lines(legendgroup = "mon1",y=dts$phsy, color=I("pink"),name = 'Phase shift') %>%
+      add_lines(legendgroup = "mon2",y=dts$phsz, color=I("lightblue"),name = 'Phase shift') %>%
       add_lines(legendgroup = "decor",x=rep(input$tWinLoc/100*nrow(df)*2,2),y=c(-input$maxShift,input$maxShift),color=I('green'),name = 'Window loc.',showlegend = F)
     p3 = plot_ly(x=dts$ts) %>% 
-      layout(yaxis=list(range=c(0,1)),xaxis=list(range=range(df$t))) %>%
+      layout(yaxis=list(range=c(0,1.5)),xaxis=list(range=range(df$t))) %>%
       add_polygons(legendgroup = "decor",legendgrouptitle = list(text = "<b>Decorations</b>"),
                    x=winBox$x,y=winBox$y,name="Processing window", color=I("lightgreen")) %>%
       add_lines(legendgroup = "mon1",y=dts$ccsy, color=I("red"),name = 'R') %>%
       add_lines(legendgroup = "mon2",y=dts$ccsz, color=I("blue"),name = 'R') %>%
-      add_lines(legendgroup = "mon1",y=dts$ccsy**2, color=I("pink"),name = 'R<sup>2</sup>') %>%
-      add_lines(legendgroup = "mon2",y=dts$ccsz**2, color=I("lightblue"),name = 'R<sup>2</sup>') %>%
+      #add_lines(legendgroup = "mon1",y=dts$ccsy**2, color=I("pink"),name = 'R<sup>2</sup>') %>%
+      #add_lines(legendgroup = "mon2",y=dts$ccsz**2, color=I("lightblue"),name = 'R<sup>2</sup>') %>%
+      add_lines(legendgroup = "mon1",y=dts$stsy, color=I("pink"),name = 'Stretch factor') %>%
+      add_lines(legendgroup = "mon2",y=dts$stsz, color=I("lightblue"),name = 'Stretch factor') %>%
       add_lines(legendgroup = "decor",x=range(df$t),y=c(input$corrLim,input$corrLim), color=I("black"),name = 'Correlation limit') %>%
       add_lines(legendgroup = "decor",x=rep(win_pos,2),y=c(0,1),color=I('green'),name = 'Window loc.',showlegend = F)
     
@@ -951,6 +1032,64 @@ server <- function(input, output,session) {
       layout(title=title,showlegend = T,legend=list(tracegroupgap=0))
     
   })
+  #### MFS Data ####
+  observeEvent(list(
+    rctvs_local$df,
+    input$shapeCC,
+    input$shaperRange
+    ),{
+    df <- rctvs_local$df 
+    #browser()
+    CCmatrix1 = getDT3dim(df$xx,df$yy,shapeCC = if(input$shapeCC) input$shaperRange else NA)
+    CCmatrix2 = getDT3dim(df$xx,df$zz,shapeCC = if(input$shapeCC) input$shaperRange else NA)
+    
+    rctvs_mfs$CCmatrix1 <- CCmatrix1
+    rctvs_mfs$CCmatrix2 <- CCmatrix2
+  })
+  #### MFS Plot ####
+  output$plotMF <- renderPlotly({
+    CCmatrix1 <- rctvs_mfs$CCmatrix1
+    CCmatrix2 <- rctvs_mfs$CCmatrix2
+    #df <- rctvs_local$df
+    #nphs=length(dePhaseRange)
+    #lento=length(df$xx)*2-1
+    #strch=seq(stretchAdjustRange[1],stretchAdjustRange[2],length.out=15)
+    #istr=match(min(abs(strch-input$sliceID)),abs(strch-input$sliceID))
+    #CCfirst=istr*nphs*lento; 
+    #print(paste("istr=",istr))
+    #CCrange=c(CCfirst:(CCfirst + nphs*lento-1))+1; 
+    #im1 = CCmatrix1$ccs[CCrange,];
+    #im2 = CCmatrix2$ccs[CCrange,];
+    #print(input$sliceID)
+    mask=CCmatrix1$ccs[,input$sliceType]==input$sliceID
+    #browser()
+    im1=CCmatrix1$ccs[mask,];
+    im2=CCmatrix1$ccs[mask,];
+    im1=im1[,!(names(im1) %in% input$sliceType)]
+    im2=im2[,!(names(im2) %in% input$sliceType)]
+    names(im1) <- c('x','y','cc')
+    names(im2) <- c('x','y','cc')
+    p1=plot_ly(data=im1) %>% add_heatmap(x=~x,y=~y,z=~cc,zmin=input$corrLim,zmax=1)  
+    #layout(title = paste('Slice for stretch factor ',strch[istr+1],' max CC=',round(max(im1$cc),3)))
+    p2=plot_ly(data=im2) %>% add_heatmap(x=~x,y=~y,z=~cc,zmin=input$corrLim,zmax=1) 
+    #layout(title = paste('Slice for stretch factor ',strch[istr+1],' max CC=',round(max(im2$cc),3)))
+    
+    subplot(p1,p2,shareY=T,nrows = 1) %>% layout(title=paste('Max CC=',round(max(im2$cc),3)),showlegend = T,legend=list(tracegroupgap=200))
+  })
+  #### MFS tab ####
+  # observe({
+  #   q=input$sliceID
+  #   print('slice does')
+  # })
+  
+  observeEvent(input$sliceType,{
+    #browser()
+    slicerVector=c(rctvs_mfs$CCmatrix1$ccs[,input$sliceType],rctvs_mfs$CCmatrix2$ccs[,input$sliceType])
+    sliderRange=round(range(slicerVector),3)
+    sliderStep=round(min(diff(unique(slicerVector))),3)
+    print(paste('slice range = ',c(sliderRange,sliderStep)))
+    updateSliderInput(session,'sliceID', label = NA, min=sliderRange[1],max=sliderRange[2],value = mean(sliderRange),step = sliderStep)
+  })
 }
 
-shinyApp(ui = ui, server = server,)
+shinyApp(ui = ui, server = server)
