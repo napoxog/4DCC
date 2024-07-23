@@ -214,12 +214,13 @@ applyHilbertRotate <- function(x, phaseDeg=180., meanFreq=25) {
   #browser()
   #print(summary(wave))
   #t=c(1:length(x_out))
-  dt=-1/meanFreq/pi/4*phaseDeg
+  #dt=1/meanFreq*phaseRad*180*0
   #print(paste(c("ph","freq","dt"),c(phaseDeg,meanFreq,dt)))
   #dt=phaseDeg/pi/2
+  #t=seq(-length(x_out)/2,length(x_out)/2,length.out=length(x_out))
+  #x_ddt=approx(x=t-dt,y=x_out,xout = t,method = "linear",rule = 2)$y
   #browser()
-  t=seq(-length(x_out)/2,length(x_out)/2,length.out=length(x_out))
-  x_out=approx(x=t-dt,y=x_out,xout = t,method = "linear",rule = 2)$y
+  #x_out=x_ddt
   return(x_out)
 }
 
@@ -814,7 +815,8 @@ server <- function(input, output,session) {
     input$multiFactor,
     input$shapeCC,
     input$shaperRange,
-    input$nWin
+    input$nWin,
+    input$tWin
   ),ignoreInit = F,ignoreNULL = T ,handlerExpr = {
     
     #### Glob Calc ####
@@ -947,8 +949,8 @@ server <- function(input, output,session) {
     appliedDT_zt = approx(x=dts$ts-dts$dtsz,y=dts$ts,xout = df$t,method = 'linear',rule=2)$y
     appliedDT_z = approx(x=appliedDT_zt,df$z,xout = df$t,method = spline_method)$y
     
-    print(paste("sd Y:",sd(appliedDT_y-df$y, na.rm = T)))
-    print(paste("sd Z:",sd(appliedDT_z-df$z, na.rm = T)))
+    #print(paste("sd Y:",sd(appliedDT_y-df$y, na.rm = T)))
+    #print(paste("sd Z:",sd(appliedDT_z-df$z, na.rm = T)))
     # ytdiff = c(diff(appliedDT_yt),0)
     # ytdiff[ytdiff<-20]=10
     # ytdiff[ytdiff>20]=10
