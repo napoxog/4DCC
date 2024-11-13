@@ -9,7 +9,7 @@ ricker <- function (t=0, f=25) {
 
 seed=runif(1)
 
-genRCtrace <- function (nEvents=10, scale=1, freq=25) {
+genRCtrace <- function (nEvents=10, scale=1, freq=15) {
   .Random.seed <- seed
   tEvents=runif(n = nEvents)*0.6+0.2
   tScals=runif(n = nEvents,min = -1, max = 1)
@@ -20,7 +20,7 @@ genRCtrace <- function (nEvents=10, scale=1, freq=25) {
   return(odf)
 }
 
-traceRC <- genRCtrace (3)
+traceRC <- genRCtrace (10)
 print(traceRC)
   
 getRandomRicker <- function(t=seq(1,1000), traceRC = traceRC, scale=1) {
@@ -42,7 +42,7 @@ getRandomRicker <- function(t=seq(1,1000), traceRC = traceRC, scale=1) {
   return(a)
 }
 
-getFun <- function (t,f=5) 
+getFun <- function (t,f=1) 
 {
   
   return(getRandomRicker(t = t, traceRC,scale = 1))
@@ -52,9 +52,10 @@ getFun <- function (t,f=5)
   w1=sapply(cos(t/5),FUN=function(x) { max(0.2,x)})
   return (f1*w1)
 }
-
-y=getFun(t)
-y2=getFun(t*0.90+20)
+t2=t*1.10-100
+y=getFun(t=t)
+y2=approx(x=t2,xout = t,getFun(t=t2))$y
+#browser()
 
 par(mfrow = c(2,1))
 plot(x=t,y=y,t='l')
@@ -68,7 +69,30 @@ title(paste("max CC=",max(cc$acf),"@ DT=",
 
 print(c(cc$lag[which(cc$acf==max(cc$acf))],max(cc$acf)))
 
+plot(x=t,y=y,t='l')
+lines(x=t,y=y2,col='red')
 
+dxy=dtw(y,y2,keep.internals = T,step.pattern = typeIas)
+
+print(paste(capture.output(summary(dxy$index2-dxy$index1)),collapse  = "\n"))
+summary(dxy$index2-dxy$index1)
+#plot(dxy,add=T)
+#dtwPlotTwoWay(dxy)
+
+
+#plot(x=t, y=y, t='l')
+y3=approx(x = dxy$index1,xout = t, dxy$reference[dxy$index2])$y
+#browser()
+lines(dxy$index1,dxy$reference[dxy$index2]/2, t='l', col='blue')
+lines(x=dxy$index1,y=(dxy$index2-dxy$index1)/diff(range((dxy$index2-dxy$index1))),t='l', col='green')
+cc_dtw=ccf(x = y,y=y3,lag.max = length(t)/2,type = 'correlation',plot = F,na.action = na.pass)
+title(paste("DTW outcome max CC=",max(cc_dtw$acf),"@ DT=",
+            cc$lag[which(cc$acf==max(cc$acf))]))
+
+plot(x=t,y=t,t='l')
+lines(x=dxy$index1,y=dxy$index2,t='l', col='red')
+
+#return()
 
 dataSleipRAW <- read.csv2(file = "Sleipner_IL1840_XL1130.csv",sep = ',',quote = '"',dec = '.')
 dataSleipDSE <- read.csv2(file = "Sleipner_IL1840_XL1130_DSE.csv",sep = ',',quote = '"',dec = '.')
@@ -248,7 +272,7 @@ applyPhaseRotation <- function(x, phase=180.) {
   return(Re(x_ph))
 }
 
-dePhaseRange = seq(-60,60,20)
+dePhaseRange = seq(-60,60,10)
 
 dePhase <- function(x,y)  {
   lento = length(x)
